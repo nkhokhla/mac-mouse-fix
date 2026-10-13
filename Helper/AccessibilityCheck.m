@@ -258,8 +258,14 @@
 
     /// Start the GlobalEventTapThread after everything else (That way, eventTaps and stuff we moved from mainThread to GlobalEventTapThread in 'No more dispatch queues' refactor still only start after everything is loaded and don't race with `load_Manual` init) [Sep 2026]
     ///     -> This makes the whole `+load_Manual` sequence thread-safe (As long as we only use mainThread and GlobalEventTapThread) [Sep 2026]
-    _enableRunLoopAsserts = 1; /** During the Helper's `load_Manual` startup sequence there's only one thread running (mainThread) and we allow it to touch all the state - here, where we start the `GlobalEventTapThread`. [Sep 2026] */
-    [GlobalEventTapThread start];
+    // Without Accessibility permission, the input modules above have not been
+    // loaded. Starting their run loop would execute HelperState callbacks that
+    // enable NULL event taps and crash before the permission sheet can be used.
+    // The main-thread permission timer restarts the helper once access is granted.
+    if (isTrusted) {
+        _enableRunLoopAsserts = 1;
+        [GlobalEventTapThread start];
+    }
 }
 
 + (Boolean)checkAccessibilityAndUpdateSystemSettings {

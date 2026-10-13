@@ -33,8 +33,10 @@ typedef enum {
 /// Bundles and Bezelservices
 
 /// Added some x's to the bundleID. See notes.md for context.
+// Keep the main app ID for existing settings. This fork uses a distinct helper
+// identity so macOS does not reuse the official helper's signing requirement.
 #define kMFBundleIDApp      @"com.nuebling.mac-mouse-fix"
-#define kMFBundleIDHelper   @"com.nuebling.mac-mouse-fix.helper"
+#define kMFBundleIDHelper   @"com.nkhokhla.mac-mouse-fix.helper.instant"
 
 //#define kMFRelativeAccomplicePath           @"Contents/Library/LaunchServices/Mac Mouse Fix Accomplice"
 #define kMFRelativeHelperAppPath            @"Contents/Library/LoginItems/Mac Mouse Fix Helper.app"
@@ -53,7 +55,7 @@ typedef enum {
 /// ^ The old value "mouse.fix.helper" was also used with the old prefpane version which could lead to conflicts. See Mail beginning with 'I attached the system log. Happening with this version too'. Edit: We moved back to the old `mouse.fix.helper` label for the app version of Mac Mouse Fix. Reasoning:
 ///      We meant to move the launchd label over to a new one to avoid conlicts when upgrading from the old prefpane, but I think it can actually lead to more complications. Also we'd fragment things, because the first few versions of the app version already shipped with the old "mouse.fix.helper" label.
 
-#define kMFLaunchdHelperIdentifierSM  @"com.nuebling.mac-mouse-fix.helper"
+#define kMFLaunchdHelperIdentifierSM  @"com.nkhokhla.mac-mouse-fix.helper.instant"
 /// ^ Keep this in sync with `sm_launchd.plist`
 /// ^ We finally moved to this new label when moving to the new Service Management API for enabling the Helper as background task for Ventura.
 /// We experienced strange issues when using the old label, so we're giving this new one a try.

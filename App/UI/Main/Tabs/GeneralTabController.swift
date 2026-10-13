@@ -314,6 +314,15 @@ extension Reactive where Base: NSSwitcherino {
     var signal: Signal<Bool, Never>
     var observer: Signal<Bool, Never>.Observer
     var eventMonitor: Any?
+
+    override func accessibilityPerformPress() -> Bool {
+        // This switch sends its state through a custom mouse handler. The
+        // standard AX press only changes NSSwitch.state, without enabling the
+        // helper. Give assistive controls the same action as a mouse click.
+        self.state = self.state == .on ? .off : .on
+        self.observer.send(value: self.state == .on)
+        return true
+    }
     
     required init() {
         let (o, i) = Signal<Bool, Never>.pipe()

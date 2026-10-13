@@ -51,3 +51,16 @@ application builds also verify the dropdown, helper integration, localization,
 and resource dependencies. On-device acceptance should check both natural
 scrolling settings, horizontal release/cancellation, Mission Control, App
 Exposé, fullscreen Spaces, and multiple displays.
+
+## Custom installation on macOS 27
+
+This fork keeps `com.nuebling.mac-mouse-fix` as the main application identifier,
+so existing settings and secure-storage records remain in place. Its helper and
+Service Management label use `com.nkhokhla.mac-mouse-fix.helper.instant` to avoid
+reusing the official helper's cached Developer ID launch requirement. The custom
+helper needs its own Accessibility permission.
+
+The permission-wait startup path leaves the input thread stopped until the input
+modules exist. This prevents an initial HelperState callback from enabling NULL
+event taps. The Enable switch also routes an accessibility press through its
+custom action signal, matching a physical mouse click.
