@@ -20,6 +20,8 @@ on:
 jobs:
   # This workflow contains a single job called "regenerate-acknowledgements"
   regenerate-state-of-localization:
+    # Upstream maintenance depends on its repositories and credentials.
+    if: github.repository == 'noah-nuebling/mac-mouse-fix'
     
     # Runs on macos runner. That's because we use ibtool from the python script.
     runs-on: macos-latest

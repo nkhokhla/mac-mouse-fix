@@ -2,7 +2,7 @@ name: Build instant Spaces option
 
 on:
   push:
-    branches: [feature/instant-spaces-drag]
+    branches: [master, feature/instant-spaces-drag]
   workflow_dispatch:
 
 permissions:
