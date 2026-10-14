@@ -6,6 +6,12 @@ Switch macOS desktops without the usual sliding transition while keeping the exi
 
 [Feature implementation](Helper/Core/Drag/ThreeFingerSwipe/InstantSpaceSwitcher/README.md) · [Upstream pull request #2084](https://github.com/noah-nuebling/mac-mouse-fix/pull/2084) · [Report a fork-specific issue](https://github.com/nkhokhla/mac-mouse-fix/issues)
 
+## Download
+
+[Download the DMG for Apple Silicon and Intel](https://github.com/nkhokhla/mac-mouse-fix/releases/download/v3.1.0-instant.1/Mac-Mouse-Fix-Instant-3.1.0.dmg) · [Release notes and installation instructions](https://github.com/nkhokhla/mac-mouse-fix/releases/tag/v3.1.0-instant.1)
+
+The first release is experimental and has been confirmed working on macOS 27. It is ad hoc signed, not Developer ID signed or notarized; macOS may require explicit approval to open it. Back up an existing installation and settings before replacing it, then grant the custom helper Accessibility permission.
+
 ## How to enable instant Spaces switching
 
 In this fork's Mac Mouse Fix app:
@@ -33,7 +39,7 @@ Fullscreen Spaces, multiple-display setups, and older macOS versions still need 
 
 ## Build from source
 
-No public DMG release has been published for this fork yet. To build the app and helper:
+A prebuilt DMG is available above. To build the app and helper yourself:
 
 ```sh
 git clone --recurse-submodules https://github.com/nkhokhla/mac-mouse-fix.git
