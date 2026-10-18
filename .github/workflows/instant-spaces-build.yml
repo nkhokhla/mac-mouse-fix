@@ -4,6 +4,12 @@ on:
   push:
     branches: [master, feature/instant-spaces-drag]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit to validate before upstream sync
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -15,17 +21,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           submodules: true
       - name: Test embedded switching engine
-        run: bash Tests/InstantSpaces/run.sh
+        run: |
+          bash Tests/InstantSpaces/run.sh
+          python3 .github/scripts/tests/test_upstream_sync.py
       - name: Build app and helper
         run: >-
           xcodebuild -project 'Mouse Fix.xcodeproj' -scheme App
           -configuration Release -derivedDataPath build
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Package build
-        run: ditto -c -k --keepParent 'build/Build/Products/Release/Mac Mouse Fix.app' 'Mac Mouse Fix Instant.zip'
+        run: |
+          app='build/Build/Products/Release/Mac Mouse Fix.app'
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          mkdir dmg-stage
+          ditto "$app" 'dmg-stage/Mac Mouse Fix.app'
+          ln -s /Applications dmg-stage/Applications
+          hdiutil create -volname 'Mac Mouse Fix Instant' -srcfolder dmg-stage -ov -format UDZO Mac-Mouse-Fix-Instant.dmg
+          hdiutil verify Mac-Mouse-Fix-Instant.dmg
+          shasum -a 256 Mac-Mouse-Fix-Instant.dmg > SHA256SUMS.txt
+          ditto -c -k --keepParent "$app" 'Mac Mouse Fix Instant.zip'
       - uses: actions/upload-artifact@v4
         with:
           name: Mac-Mouse-Fix-Instant
-          path: Mac Mouse Fix Instant.zip
+          path: |
+            Mac Mouse Fix Instant.zip
+            Mac-Mouse-Fix-Instant.dmg
+            SHA256SUMS.txt

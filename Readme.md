@@ -8,7 +8,7 @@ Switch macOS desktops without the usual sliding transition while keeping the exi
 
 ## Download
 
-[Download the DMG for Apple Silicon and Intel](https://github.com/nkhokhla/mac-mouse-fix/releases/download/v3.1.0-instant.1/Mac-Mouse-Fix-Instant-3.1.0.dmg) · [Release notes and installation instructions](https://github.com/nkhokhla/mac-mouse-fix/releases/tag/v3.1.0-instant.1)
+[Download the DMG for Apple Silicon and Intel](https://github.com/nkhokhla/mac-mouse-fix/releases/latest/download/Mac-Mouse-Fix-Instant.dmg) · [Release notes and installation instructions](https://github.com/nkhokhla/mac-mouse-fix/releases/latest)
 
 The first release is experimental and has been confirmed working on macOS 27. It is ad hoc signed, not Developer ID signed or notarized; macOS may require explicit approval to open it. Back up an existing installation and settings before replacing it, then grant the custom helper Accessibility permission.
 
@@ -60,6 +60,8 @@ bash Tests/InstantSpaces/run.sh
 ```
 
 ## Upstream status and credits
+
+This fork checks upstream `master` every six hours through [Sync upstream](https://github.com/nkhokhla/mac-mouse-fix/actions/workflows/sync-upstream.yml), which can also be run manually. Clean merges update this fork's `master` only after the instant-switching tests, sync safety tests, and full Release build pass. Each successful sync builds and verifies a fresh ad hoc signed DMG and publishes it as the latest release. Earlier releases remain available. Merge conflicts or failed checks open or update a review PR instead, leaving the current source and download unchanged. These automated checks cannot guarantee every runtime behavior.
 
 The optional instant drag action has been proposed to the original project in [PR #2084](https://github.com/noah-nuebling/mac-mouse-fix/pull/2084). It has not been merged. This fork is not an official Mac Mouse Fix release and is not endorsed by its maintainer.
 

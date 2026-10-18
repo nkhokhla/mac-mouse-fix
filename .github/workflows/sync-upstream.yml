@@ -1,0 +1,72 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '23 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.repository == 'nkhokhla/mac-mouse-fix' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      needed: ${{ steps.merge.outputs.needed }}
+      conflict: ${{ steps.merge.outputs.conflict }}
+      base: ${{ steps.merge.outputs.base }}
+      upstream: ${{ steps.merge.outputs.upstream }}
+      head: ${{ steps.merge.outputs.head }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Prepare upstream merge
+        id: merge
+        run: bash .github/scripts/prepare-upstream-sync.sh
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.needed == 'true' && needs.prepare.outputs.conflict == 'false'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/instant-spaces-build.yml
+    with:
+      ref: ${{ needs.prepare.outputs.head }}
+
+  publish:
+    needs: [prepare, validate]
+    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.prepare.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+      - name: Download validated release files
+        if: needs.validate.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: Mac-Mouse-Fix-Instant
+          path: release-assets
+      - name: Publish validated merge or open review PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ needs.prepare.outputs.base }}
+          UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream }}
+          CANDIDATE_SHA: ${{ needs.prepare.outputs.head }}
+          CONFLICT: ${{ needs.prepare.outputs.conflict }}
+          VALIDATION: ${{ needs.validate.result }}
+          RELEASE_ASSETS: release-assets
+        run: bash .github/scripts/publish-upstream-sync.sh

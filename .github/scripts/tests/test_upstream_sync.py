@@ -1,0 +1,142 @@
+"""Exercise sync scripts against disposable repositories; never contact GitHub."""
+import os
+import hashlib
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+SCRIPTS = Path(__file__).resolve().parents[1]
+GIT = shutil.which("git")
+
+
+class SyncTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull)
+        self.git("init", "-b", "master")
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.invalid")
+        self.commit("shared", "base")
+        self.base = self.git("rev-parse", "HEAD")
+        self.git("clone", "--bare", str(self.repo), str(self.root / "upstream"))
+        self.git("clone", "--bare", str(self.repo), str(self.root / "origin"))
+        self.git("remote", "add", "origin", str(self.root / "origin"))
+        self.git("fetch", "origin")
+        self.commit("feature", "instant switching")
+        self.git("push", "origin", "master")
+        self.fork = self.git("rev-parse", "HEAD")
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        # Rewrite only the known upstream fetch, keeping all merge/push behavior real.
+        (self.bin / "git").write_text(
+            '#!/bin/bash\nif [[ "$1" == fetch && "$2" == https://github.com/noah-nuebling/mac-mouse-fix.git ]]; then\n'
+            ' shift 2\n exec "$REAL_GIT" fetch "$TEST_UPSTREAM" "$@"\nfi\nexec "$REAL_GIT" "$@"\n'
+        )
+        (self.bin / "gh").write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$GH_LOG"\n')
+        for file in self.bin.iterdir():
+            file.chmod(0o755)
+        self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
+                        REAL_GIT=GIT, TEST_UPSTREAM=str(self.root / "upstream"),
+                        GITHUB_OUTPUT=str(self.root / "output"),
+                        GITHUB_STEP_SUMMARY=str(self.root / "summary"),
+                        GH_LOG=str(self.root / "gh-log"),
+                        GITHUB_REPOSITORY="example/test", GITHUB_RUN_ID="123")
+        assets = self.root / "assets"
+        assets.mkdir()
+        dmg = b"test dmg"
+        (assets / "Mac-Mouse-Fix-Instant.dmg").write_bytes(dmg)
+        (assets / "SHA256SUMS.txt").write_text(
+            hashlib.sha256(dmg).hexdigest() + "  Mac-Mouse-Fix-Instant.dmg\n")
+        self.env["RELEASE_ASSETS"] = str(assets)
+
+    def git(self, *args):
+        return subprocess.check_output([GIT, *args], cwd=self.repo, env=self.env,
+                                       stderr=subprocess.DEVNULL, text=True).strip()
+
+    def commit(self, name, content):
+        (self.repo / name).write_text(content)
+        self.git("add", name)
+        self.git("commit", "-m", "Test change")
+
+    def upstream_change(self, conflict=False):
+        self.git("switch", "--detach", self.base)
+        self.commit("shared" if conflict else "upstream-file", "upstream update")
+        self.git("push", str(self.root / "upstream"), "HEAD:master")
+        self.git("switch", "master")
+        if conflict:
+            self.commit("shared", "fork update")
+            self.git("push", "origin", "master")
+            self.fork = self.git("rev-parse", "HEAD")
+
+    def prepare(self):
+        subprocess.run(["bash", str(SCRIPTS / "prepare-upstream-sync.sh")],
+                       cwd=self.repo, env=self.env, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return dict(line.split("=", 1) for line in (self.root / "output").read_text().splitlines())
+
+    def publish(self, result, validation="success", check=True):
+        env = dict(self.env, BASE_SHA=result["base"], UPSTREAM_SHA=result["upstream"],
+                   CANDIDATE_SHA=result["head"], CONFLICT=result["conflict"], VALIDATION=validation)
+        return subprocess.run(["bash", str(SCRIPTS / "publish-upstream-sync.sh")],
+                              cwd=self.repo, env=env, check=check,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def origin_master(self):
+        return self.git("--git-dir=" + str(self.root / "origin"), "rev-parse", "master")
+
+    def test_no_updates(self):
+        self.assertEqual(self.prepare()["needed"], "false")
+
+    def test_clean_merge_preserves_feature_and_updates_after_validation(self):
+        self.upstream_change()
+        result = self.prepare()
+        self.assertEqual(self.origin_master(), self.fork)
+        self.assertEqual(self.git("show", result["head"] + ":feature"), "instant switching")
+        self.publish(result)
+        self.assertEqual(self.origin_master(), result["head"])
+        log = (self.root / "gh-log").read_text()
+        self.assertIn("release create", log)
+        self.assertIn("--draft", log)
+        self.assertIn("--draft=false --latest", log)
+
+    def test_conflict_opens_pr_without_changing_master(self):
+        self.upstream_change(conflict=True)
+        result = self.prepare()
+        self.assertEqual(result["conflict"], "true")
+        self.publish(result, validation="skipped")
+        self.assertEqual(self.origin_master(), self.fork)
+        self.assertIn("pr create", (self.root / "gh-log").read_text())
+
+    def test_failed_validation_does_not_update_master(self):
+        self.upstream_change()
+        self.publish(self.prepare(), validation="failure")
+        self.assertEqual(self.origin_master(), self.fork)
+        self.assertNotIn("release create", (self.root / "gh-log").read_text())
+
+    def test_corrupt_dmg_prevents_source_update_and_release(self):
+        self.upstream_change()
+        result = self.prepare()
+        (Path(self.env["RELEASE_ASSETS"]) / "Mac-Mouse-Fix-Instant.dmg").write_bytes(b"corrupt")
+        self.assertNotEqual(self.publish(result, check=False).returncode, 0)
+        self.assertEqual(self.origin_master(), self.fork)
+        self.assertFalse((self.root / "gh-log").exists())
+
+    def test_master_update_during_validation_is_not_overwritten(self):
+        self.upstream_change()
+        result = self.prepare()
+        self.git("switch", "master")
+        self.commit("concurrent", "new work")
+        new_head = self.git("rev-parse", "HEAD")
+        self.git("push", "origin", "master")
+        self.publish(result)
+        self.assertEqual(self.origin_master(), new_head)
+
+
+if __name__ == "__main__":
+    unittest.main()
