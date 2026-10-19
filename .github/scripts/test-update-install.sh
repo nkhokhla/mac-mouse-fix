@@ -5,6 +5,7 @@ temp=$(mktemp -d)
 trap 'hdiutil detach "$temp/mount" >/dev/null 2>&1 || true; rm -rf "$temp"' EXIT
 mkdir "$temp/new" "$temp/old" "$temp/frameworks"
 hdiutil attach "$assets/Mac-Mouse-Fix-Instant.dmg" -readonly -nobrowse -mountpoint "$temp/mount"
+python3 .github/scripts/check-built-app.py "$temp/mount/Mac Mouse Fix.app"
 ditto "$temp/mount/Mac Mouse Fix.app" "$temp/new/Mac Mouse Fix.app"
 ditto "$temp/mount/Mac Mouse Fix.app" "$temp/old/Mac Mouse Fix.app"
 ditto "$temp/mount/Mac Mouse Fix.app/Contents/Frameworks/Sparkle.framework" "$temp/frameworks/Sparkle.framework"

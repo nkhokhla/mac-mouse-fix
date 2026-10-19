@@ -40,8 +40,11 @@ jobs:
       - name: Package build
         run: |
           app='build/Build/Products/Release/Mac Mouse Fix.app'
+          python3 .github/scripts/check-built-app.py "$app" --prepare \
+            --expected-build "$((GITHUB_RUN_ID * 100 + GITHUB_RUN_ATTEMPT))"
           codesign --force --deep --sign - "$app"
           codesign --verify --deep --strict "$app"
+          python3 .github/scripts/check-built-app.py "$app"
           mkdir dmg-stage
           ditto "$app" 'dmg-stage/Mac Mouse Fix.app'
           ln -s /Applications dmg-stage/Applications
