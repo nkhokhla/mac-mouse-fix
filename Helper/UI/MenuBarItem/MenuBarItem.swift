@@ -102,10 +102,10 @@ import Foundation
     
     @objc static func reload() {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
 
         let shouldShow = config("General.showMenuBarItem") as? Bool ?? false
-        MFCFRunLoopPerform(CFRunLoopGetMain(), nil) {
+        mfrun(CFRunLoopGetMain()) {
             instance?.statusItem?.isVisible = shouldShow
         }
 
@@ -114,7 +114,7 @@ import Foundation
         
         if shouldShow {
 
-            MFCFRunLoopPerform(CFRunLoopGetMain(), nil) {
+            mfrun(CFRunLoopGetMain()) {
                 instance?.buttonsEnabledItem.state = !buttonsKilled ? .on : .off
                 instance?.scrollEnabledItem.state = !scrollKilled ? .on : .off
             }
@@ -148,7 +148,7 @@ import Foundation
         sender.state = sender.state == .on ? .off : .on
         /// Set to config
         let killed = sender.state != .on
-        MFCFRunLoopPerform(GlobalEventTapThread.runLoop(), nil) {
+        mfrun(IOThread.runLoop()) {
             setConfig("General.scrollKillSwitch", killed as NSObject)
             commitConfig()
         }
@@ -160,7 +160,7 @@ import Foundation
         sender.state = sender.state == .on ? .off : .on
         /// Set to config
         let killed = sender.state != .on
-        MFCFRunLoopPerform(GlobalEventTapThread.runLoop(), nil) {
+        mfrun(IOThread.runLoop()) {
             setConfig("General.buttonKillSwitch", killed as NSObject)
             commitConfig()
         }

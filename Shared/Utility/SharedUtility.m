@@ -72,104 +72,6 @@ NSString *MFLanguageCode(void) {
     return (id)result;
 }
 
-
-#pragma mark - runLoops
-
-static NSArray<NSRunLoopMode> *_resolveModes(CFRunLoopRef rl, NSArray<NSRunLoopMode> *_Nullable modes) {
-    if (modes && modes.count == 0) {
-        assert(false && "modes should not be an empty array. Pass nil for the default value.");
-        modes = nil;
-    }
-    if (!modes) {
-        if ((1))    modes = (id)NSRunLoopCommonModes;                       /// Using CommonModes should grant our workload pretty high priorty || Note that we're passing the mode directly (instead of passing an array of modes) – that also works.
-        else        modes = CFBridgingRelease(CFRunLoopCopyAllModes(rl));   /// Passing all modes should grant our workload very high priority. Could this lead to unforseen problems? ... Not using this for now out of fear and terror. Ahhhhh.
-    }
-
-    return modes;
-}
-
-void MFCFRunLoopPerform(CFRunLoopRef _Nonnull rl, NSArray<NSRunLoopMode> *_Nullable modes, void (^_Nonnull workload)(void)) {
-    /// Usage:
-    ///     `modes` arg:
-    ///     - Pass nil to fall back to the default value.
-    ///     - You can also pass a single NSRunLoopMode (instead of an array of NSRunLoopModes)
-    
-    /// Meta-Discussion: Which API to use to perform stuff on a different runLoop?
-    ///     - `dispatch_async()`? Maybe, but only works on the mainRunLoop (?). Also I'd like to use the lower-level APIs directly. It also doesn't let us control the runLoopMode.
-    ///     - `-[NSRunLoop performInModes:block:]`? Maybe, but the docs say NSRunLoop APIs aren't thread-safe.
-    ///         Sidenote: Uses CFRunLoopPerformBlock() under-the-hood.
-    ///         Sidenote: The simpler variant -[NSRunLoop performBlock:] only runs in the default mode based on my assembly-investigations.
-    ///     - `-[NSObject performSelector:onThread:...]`? Should work, is flexible (can be delayed, and canceled just like NSTimer, can also be awaited like `dispatch_sync`) but the API is cumbersome for simple stuff. - maybe we could wrap it?
-    ///     - `CFRunLoopPerformBlock()`? >> Yes sounds good. <<
-    ///
-    /// Sidenote: NSRunLoop vs CFRunLoop:
-    ///     They are not the same. NSRunLoop is a higher-level wrapper around CFRunLoop. Every NSThread has an NSRunLoop. NSRunLoop APIs are generally not thread safe (according to the docs), while CFRunLoop APIs seem to be.
-    ///
-    /// Discussion: Which runLoop mode(s) to use?
-    ///     In MMF, we're usually processing user input. When we run that stuff on the mainThread, we want it to have the highest priority on the thread to maximize responsiveness.
-    ///     Using `NSRunLoopCommonModes`, our workload runs if the runLoop is in default, modal, or eventTracking mode (by default) (Source: https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/RunLoopManagement/RunLoopManagement.html#//apple_ref/doc/uid/10000057i-CH16)
-    ///     To run our workload with higher priority, we can run our workload in *all modes*.
-    ///     To run our workload with *even higher* priority, we could run the runLoop in a custom mode. But I'm not sure how to do that [Jan 2025]
-    ///
-    /// Thread-safety:
-    ///     Should be pretty thread-safe as far as I can tell.
-    ///
-    /// Future plans:
-    ///     TODO: (Over time) Replace uses of `dispatch_async()` with MFCFRunLoopPerform().
-    ///     (Also (over time): remove DispatchQueues in favour of NSThread and NSRunLoop – so we can reduce thread count and gain more control over threading behavior.)
-    /// @noGCDCleanup
-    ///     Update this comment, maybe simplify code (we'll never use the `modes` arg, probably)
-
-    modes = _resolveModes(rl, modes);
-    CFRunLoopPerformBlock(rl, (__bridge void *)modes, workload);
-    CFRunLoopWakeUp(rl);
-}
-
-static void _cfRunLoopTimerCallback(CFRunLoopTimerRef timer, void *info) {
-    void (^workload)(void) = (__bridge id)info;
-    workload();
-}
-void MFCFRunLoopPerform_delay(CFRunLoopRef _Nonnull rl, NSArray<NSRunLoopMode> *_Nullable modes, double delayInSeconds, void (^_Nonnull workload)(void)) {
-    if (delayInSeconds <= 0) return MFCFRunLoopPerform(rl, modes, workload);
-    CFRunLoopTimerContext ctx = {
-        .info = (__bridge void *)workload,
-        .release = CFRelease, .retain = CFRetain, .copyDescription = CFCopyDescription,
-    };
-    CFRunLoopTimerRef timer = CFRunLoopTimerCreate(kCFAllocatorDefault, /*fireDate*/CFAbsoluteTimeGetCurrent() + delayInSeconds, /*interval*/0, /*flags*/0, /*order*/0, _cfRunLoopTimerCallback, &ctx);
-    modes = _resolveModes(rl, modes);
-    if (!isclass(modes, NSArray)) modes = @[modes];
-    for (NSRunLoopMode mode in modes) CFRunLoopAddTimer(rl, timer, (void *)mode);
-    CFRelease(timer);
-}
-
-#if 0 /** [Sep 2026] Unused. */
-    bool MFCFRunLoopPerform_sync(CFRunLoopRef _Nonnull rl, NSArray<NSRunLoopMode> *_Nullable modes, NSTimeInterval timeout, void (^_Nonnull workload)(void)) {
-
-        /// Variant of MFCFRunLoopPerform which waits for the workload to complete (or does the workload immediately if `rl` is the current runLoop.)
-        ///     Sort of an analog to `dispatch_sync()` (if `MFCFRunLoopPerform()` was `dispatch_async()`)
-        ///     Returns `1` if waiting timed out. `0` otherwise.
-        ///     Pass `timeout <= 0` to disable the timeout.
-        ///
-        /// Caution: If you don't pass a timeout, this can lead to deadlocks!
-        ///     (Deadlocks can happen if you're waiting for a thread which (indirectly) waits for you. As long as `workload` doesn't wait for anything/acquire any locks, there can't be deadlocks.)
-
-        bool didTimeOut = false;
-
-        if (CFEqual(rl, CFRunLoopGetCurrent())) {
-            workload();
-            return didTimeOut;
-        }
-
-        NSDate *timeoutDate = (timeout <= 0) ? nil : [NSDate dateWithTimeIntervalSinceNow: timeout]; /// We calculate the timeoutDate early in the function, so that it's accurate. Not sure if that's silly.
-
-        MFGate *gate = [MFGate new];
-        MFCFRunLoopPerform(rl, modes, ^{ [gate doWork: workload]; });
-        didTimeOut = [gate waitForWorkUntilDate: timeoutDate]; /// We completely block the current thread/runloop. Do the waiting `-[NSObject performSelector:onThread:...]` APIs do that, too?
-
-        return didTimeOut;
-    }
-#endif
-
 #pragma mark - Time
 
 uint64_t secondsToMachTime(CFTimeInterval tsSeconds) {
@@ -585,9 +487,9 @@ NSString *_Nonnull bitflagstring(int64_t flags, NSString *const _Nullable bitpos
     DDLogInfo("PRINTING STACK TRACE: %@", [NSThread callStackSymbols]);
 }
 
-+ (NSString *)currentDispatchQueueDescription {
-    return dispatch_get_current_queue().description;
-}
+//+ (NSString *)currentDispatchQueueDescription {
+//    return dispatch_get_current_queue().description;
+//}
 
 /// For debugging.
 + (void)printInvocationCountWithId:(NSString *)strId {
@@ -823,6 +725,7 @@ NSString *_Nonnull bitflagstring(int64_t flags, NSString *const _Nullable bitpos
     return dstMutable;
 }
 
+#if 0
 + (void)resetDispatchGroupCount:(dispatch_group_t)group {
     /// Reset smoothing group counter to 0
     /// This doesn't work, don't use this.
@@ -846,5 +749,6 @@ NSString *_Nonnull bitflagstring(int64_t flags, NSString *const _Nullable bitpos
         dispatch_group_leave(group);
     }
 }
+#endif
 
 @end

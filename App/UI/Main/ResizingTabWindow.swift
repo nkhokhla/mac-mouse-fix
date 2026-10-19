@@ -50,7 +50,7 @@ import Cocoa
         
         /// Create animator
         if (self.windowFrameAnimator == nil) {
-            windowFrameAnimator = DynamicSystemAnimator(fromAnimation: animation, stopTolerance: 0.003, phaseShift: kPhaseShiftInVBLDeltas_DefaultForAppKitUpdates, runLoop: CFRunLoopGetMain(), name: "ResizingTabWindow");
+            windowFrameAnimator = DynamicSystemAnimator(fromAnimation: animation, stopTolerance: 0.003, phaseShift: kVBLPhase_DefaultForAppKitUpdates, runLoop: CFRunLoopGetMain(), name: "ResizingTabWindow");
         }
         
         /// Debug
@@ -143,7 +143,7 @@ import Cocoa
             animation.start()
         }
         
-        DispatchQueue.main.async { workload() }
+        mfrun(CFRunLoopGetMain()) { workload() }
     }
     
     fileprivate func resizeTime_Manual(_ newFrame: NSRect) -> TimeInterval {

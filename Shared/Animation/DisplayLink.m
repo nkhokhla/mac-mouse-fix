@@ -21,24 +21,24 @@
 ///             - CADisplayLink is per-display and can't be retargeted to a new display which is a little bit complicating.
 ///         Performance and control:
 ///             - This guarantees that repeatedly calling start/stop is extremely cheap (Maybe it cheap as well on CVDisplayLink but I didn't fully trust that I guess)
-///             - This gives us full control over the `PhaseShiftInVBLDeltas` which we think is important for smoothness when sending events.
+///             - This gives us full control over the `VBLPhase` which we think is important for smoothness when sending events.
 ///             - Any time you wanna wait for the next frame once - you can just use DisplayLink.m and stop it from the callback, and it's optimal for that, too.
 ///                 (History: We wanted to do that for the coalescing stuff in ModifiedDrag.m, which prompted us to rewrite DisplayLink.m on top of `mk_timer` instead of using one-off implementation of CFRunLoopTimer + `SLSDisplayGetPriorVBLTime` and `SLSDisplayGetCurrentVBLDelta` which is more complicated at callsite and I think a little slower. [Oct 2026])
 ///     Improvement ideas:
 ///         Work-time-estimation: (don't think we need this)
 ///             Only possible downside I can see vs CVDisplayLink and CADisplayLink is I think they measure the amount
-///             of time that the callback takes and then reschedule the start time so that the work is finished by a certain frame phase (See `PhaseShiftInVBLDeltas`)
+///             of time that the callback takes and then reschedule the start time so that the work is finished by a certain vblPhases (See `VBLPhase`)
 ///             However, I don't see any evidence that this helps us at all, and would be pretty easy to implement if we decide otherwise.
 ///                 Why I don't think it helps?: Our work should be super cheap, if it's not near-instant it's because whole system is getting unresponsive and the delays are rather unpredictable.
-///                 We're generally hitting frame phases better than the real trackpad driver, I think. (Test with `vblphase.m`)
-///         Avoid callbacks in bad frame phase 'zones'
+///                 We're generally hitting vblPhases better than the real trackpad driver, I think. (Test with `vblphase.m`)
+///         Avoid callbacks in bad vblPhase 'zones'
 ///             - Phase can be delayed a lot to random points when under load - maybe should skip / delay callbacks when in 'bad' zone?
 ///                 Why this might matter: Our tests in ModifiedDrag.m [Oct 2026] showed that sending (all of the) DockSwipes close to phase 0.0 caused noticable stutter. (For Scroll event I didn't yet notice specific phase causing stutters [Oct 2026])
-///                 (See `PhaseShiftInVBLDeltas` and test phase with `vblphase.m`)
+///                 (See `VBLPhase` and test phase with `vblphase.m`)
 ///         Avoid callbacks close together?
 ///             I sometimes saw pattern where every second frame callback is delayed, and delivers really close to the next one. Might be better to skip?
 ///                 However, I saw same pattern for real Trackpad events (using `vblphase.m`). Probably fine [Oct 2026]
-///         Use real time thread (instead of max priority in the normal band via our `set_thread_priority()`)
+///         Use real time thread (instead of max priority in the normal band (`MAXPRI_USER`) via our `set_thread_priority()` [Oct 2026]) (@afterNoGCDTodo)
 ///             -> Might solve bad-phase-zone and close-together-callabacks issues (above). Haven't tried real time scheduling at all so far. [Oct 2026]
 ///     Other info:
 ///         Opus 5.5 says CADisplayLink and CFRunLoopTimer are built on `mk_timer`, too, just like this DisplayLink
@@ -54,9 +54,11 @@
 #import "MathObjc.h"
 #import "mk_timer.h"
 
+#define range(i, n) (int i = 0; i < (n); i++)
+
 #pragma mark - VSync helpers
 
-uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *beforeOrAfter, uint64_t anchorInMachTime, PhaseShiftInVBLDeltas phaseShift) {
+uint64_t CGDisplay_NearestVBLTime(CGDirectDisplayID displayID, const char *beforeOrAfter, uint64_t anchorInMachTime, VBLPhase phaseShift) {
     /// Helper
     /// Usage: Pass `mach_absolute_time()` as the `anchorInMachTime` to get the nearest VSync time relative to now.
     /// Background: VBL stands for `vertical blank` it's the time between the display reading the last pixel of the previous frame to reading the first pixel of the next frame.
@@ -86,13 +88,14 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
 
 #pragma mark - DisplayLink class
 
-#define kUseCriticalTimer (1) /** Feel like this lowers framedrops. When using DisplayLink to coalesce DockSwipes in ModifiedDrag.m [Oct 2026]. Could be placebo. Not sure if (also) appropriate for `kPhaseShiftInVBLDeltas_DefaultForAppKitUpdates` */
+#define kUseCriticalTimer (1) /** Feel like this lowers framedrops. When using DisplayLink to coalesce DockSwipes in ModifiedDrag.m [Oct 2026]. Could be placebo. Not sure if (also) appropriate for `kVBLPhase_DefaultForAppKitUpdates` */
 
 @implementation DisplayLink
     {
 
         /// Init
-        PhaseShiftInVBLDeltas _phaseShift;
+        VBLPhase _phaseShift;
+        CFRunLoopRef _runLoop;
         NSString *_name;
         mach_port_name_t _mkTimer;
 
@@ -100,6 +103,7 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         CGDirectDisplayID _linkedDisplay;
 
         /// Start/stop
+        DisplayLinkCallback _callback;
         bool _timerIsArmed;
         bool _isRunning;
 
@@ -117,10 +121,10 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
     #define _mfassert(condition, reason, args...)  mfassert((condition), @"DisplayLink (%@) " reason, self->_name, ##args)
     #define _DDLogDebug(message, args...)          DDLogDebug("DisplayLink (%@) " message, self->_name, ##args)
 
-    + (instancetype) displayLinkWithPhaseShift: (PhaseShiftInVBLDeltas)phaseShift runLoop: (CFRunLoopRef)runLoop name: (NSString *)name {
+    + (instancetype) displayLinkWithPhaseShift: (VBLPhase)phaseShift runLoop: (CFRunLoopRef)runLoop name: (NSString *)name {
         return [[DisplayLink alloc] initWithPhaseShift: phaseShift runLoop: runLoop name: name];
     }
-    - (instancetype) initWithPhaseShift: (PhaseShiftInVBLDeltas)phaseShift runLoop: (CFRunLoopRef)runLoop name: (NSString *)name {
+    - (instancetype) initWithPhaseShift: (VBLPhase)phaseShift runLoop: (CFRunLoopRef)runLoop name: (NSString *)name {
         if (!(self = [super init])) return nil;
 
         _phaseShift = phaseShift;
@@ -142,6 +146,8 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         return self;
     }
 
+    - (CFRunLoopRef) runLoop { return _runLoop; }
+
     static void mkTimerCallback(CFMachPortRef port, void *msg, CFIndex size, void *info) {
         DisplayLink *self = (__bridge id)info;
 
@@ -150,11 +156,11 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         if (!self->_isRunning) return;
 
         uint64_t now = mach_absolute_time();
-        uint64_t lastFrame = mf_CGDisplayGetNearestVBLTime(self->_linkedDisplay, "before", now, self->_phaseShift) ?: fallbackPriorVBLTime(now);
+        uint64_t lastFrame = CGDisplay_NearestVBLTime(self->_linkedDisplay, "before", now, self->_phaseShift) ?: fallbackPriorVBLTime(now);
         uint64_t frameTime = SLSDisplayGetCurrentVBLDelta(self->_linkedDisplay) ?: kFallbackVBLDelta;
 
-        uint64_t tolerance = frameTime * (0.5/*0.0*/); /// Prevent quick-succession wakeups in case the VBLTime window shifts forwards a little bit. Not sure this happens. Opus 5.5 is concerned [Oct 2026]
-                                                       /// Update: There are a few more framedrops than I'd expect - maybe setting to 0.0 helps? Not sure. [Oct 2026]
+        uint64_t tolerance = defaultVBLTolerance(frameTime); /// Prevent quick-succession wakeups in case the VBLTime window shifts forwards a little bit. Not sure this happens. Opus 5.5 is concerned [Oct 2026]
+                                                             /// Update: There are a few more framedrops than I'd expect - maybe setting to 0.0 helps? Not sure. [Oct 2026]
 
         if (lastFrame <= self->_lastLastFrame + tolerance) { /// [Oct 2026] Last frame being equal rarely happens but causes division by zero in the animators. Have never seen wakeups in quick succession within `tolerance`.
             _DDLogDebug("Woke up twice lastFrame: %f, _lastLastFrame: %f",
@@ -175,9 +181,15 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
 
             if (runningDebugMode()) {
                 if (self->_lastNow) {
-                    uint64_t realLastFrame = mf_CGDisplayGetNearestVBLTime(self->_linkedDisplay, "before", now, /*phaseShiftInVBLDeltas*/0.0);
+                    uint64_t realLastFrame = CGDisplay_NearestVBLTime(self->_linkedDisplay, "before", now, /*phaseShift*/0.0);
                     double phaseShift = ((double)(now - realLastFrame) / frameTime);
-                    _DDLogDebug("delta: %05.2f, phaseShift: %.2f, callbackPhaseDuration %05.2f", 1e3*machTimeToSeconds(now - self->_lastNow), phaseShift, ((double)(tsAfterCallback - tsBeforeCallback))/frameTime);
+
+                    char phaseShiftString[21]; { int p = 0; /// Little visualization inspired by Claude's vbldelta.m [Oct 2026]
+                        int phaseShiftRounded = roundToGrid(phaseShift * 20, /*grid0*/0, /*grid1*/1, "down");
+                        for range(i, 20) phaseShiftString[p++] = i == phaseShiftRounded ? '#' : '_';
+                        phaseShiftString[20] = 0;
+                    }
+                    _DDLogDebug("delta: %06.2f, phaseShift: %.2f (%{public}s), callbackPhaseDuration %05.2f", 1e3*machTimeToSeconds(now - self->_lastNow), phaseShift, phaseShiftString, ((double)(tsAfterCallback - tsBeforeCallback))/frameTime);
                 }
                 self->_lastNow = now;
             }
@@ -192,7 +204,7 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         if (self->_timerIsArmed) return;
 
         uint64_t now = mach_absolute_time();
-        uint64_t nextCallbackTime = mf_CGDisplayGetNearestVBLTime(self->_linkedDisplay, "after", now, self->_phaseShift) ?: (fallbackPriorVBLTime(now) + kFallbackVBLDelta);
+        uint64_t nextCallbackTime = CGDisplay_NearestVBLTime(self->_linkedDisplay, "after", now, self->_phaseShift) ?: (fallbackPriorVBLTime(now) + kFallbackVBLDelta);
 
         kern_return_t ret;
         if ((kUseCriticalTimer)) ret = mk_timer_arm_leeway(self->_mkTimer, MK_TIMER_CRITICAL, nextCallbackTime, /*mk_timer_leeway*/0);
@@ -201,7 +213,7 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         self->_timerIsArmed = true;
     }
 
-    - (void) start_UnsafeWithCallback: (DisplayLinkCallback _Nullable)callback {
+    - (void) startWithCallback: (DisplayLinkCallback _Nullable)callback {
         assertRunLoop(_runLoop);
 
         if (callback) _callback = callback;
@@ -218,11 +230,10 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
 
         _lastLastFrame = 0;
     }
-    - (void) stop_Unsafe {
+    - (void) stop {
         assertRunLoop(_runLoop);
 
         if (!_isRunning) return;
-
         _isRunning = false;
 
         if (!_timerIsArmed) return;
@@ -234,7 +245,7 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
         if (!ret && !canceledWakeUpTime) {
             /// Handle minor race, where the timer has already fired but the runLoop hasn't invoked `mkTimerCallback`, yet.
             ///     This can lead to weird behavior, if you're stopping and then restarting the DisplayLink in this period (the period between timer firing and `mkTimerCallback`) the next `mkTimerCallback` may fire for a scheduled time that is *before* the last start command. Which is inconsistent with how start normally works. (Normally it schedules the first timer for the first VSync *after* the start command)
-            ///         Is this just theoretical problem? Maybe. Opus 5.5 says the 'flush coalesced event once a frame on first mouse event *or* fallback timer' strategy we're thinking about implementing in ModifiedDrag.m might be messed up by this inconsistency. Consistent behavior is better either way, probably. [Oct 2026]
+            ///         Is this just theoretical problem? Maybe. Opus 5.5 says the 'fallback timer' strategy we're thinking about implementing in ModifiedDrag.m might be messed up by this inconsistency. Consistent behavior is better either way, probably. [Oct 2026]
             ///     Solution: Drain the mach port.
             ///     Credits: Opus 5.5
 
@@ -247,12 +258,12 @@ uint64_t mf_CGDisplayGetNearestVBLTime(CGDirectDisplayID displayID, const char *
 
         _timerIsArmed = false;
     }
-    - (BOOL) isRunning_Unsafe {
+    - (BOOL) isRunning {
         assertRunLoop(_runLoop);
         return _isRunning;
     }
 
-    - (void) linkToMainScreen { /// TODO: Use displayUnderMousePointer instead of mainScreen instead (across the entire program) [Oct 2026]
+    - (void) linkToMainScreen { /// @afterNoGCDTodo: Use displayUnderMousePointer instead of mainScreen instead (across the entire program) [Oct 2026]
         assertRunLoop(_runLoop);
         _linkedDisplay = [[NSScreen mainScreen] displayID];
     }

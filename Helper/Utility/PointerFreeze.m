@@ -18,7 +18,7 @@
 #import "Mac_Mouse_Fix_Helper-Swift.h"
 #import "CGSConnection.h"
 #import "ModificationUtility.h"
-#import "GlobalEventTapThread.h"
+#import "Threads.h"
 #import "NSScreen+Additions.h"
 @import CoreMedia;
 #import "MFGate.h"
@@ -43,7 +43,7 @@ static Boolean _coolEventTapIsEnabled; /// CGEventTapIsEnabled() is pretty slow,
 static CFTimeInterval _lastEventTimestamp;
 static int64_t _lastEventDelta;
 
-#define pointerFreezeRunLoop() GlobalEventTapThread.runLoop
+#define pointerFreezeRunLoop() IOThread.runLoop
 
 /// + initialize
 
@@ -135,7 +135,7 @@ static void freezePointer(CGPoint origin, BOOL keepPointerMoving) {
             ///             The puppetCursor will only be drawn after a delay, while hiding the mouse pointer is really fast.
             ///             This leads to a little flicker when the puppetCursor is not yet drawn, but the real cursor is already hidden.
             ///             Not sure why this happens. But adding a delay of 20 ms before hiding makes it look seamless.
-            ///             Edit: deferring caused race conditions, so we're sleeping instead. Might be bad for performance because we're using dispatch_sync above
+            ///             Edit: deferring caused race conditions, so we're sleeping instead. Might be bad for performance because this is running on IOThread [Oct 2026]
             ///
             usleep(10 * 1000); /// Wait for 10 ms
         }
@@ -384,7 +384,7 @@ static void drawPuppetCursor(PuppetCursorCommand command) {
 
     /// Decide about blocking
     /// I used to think blocking was necessary to get the order of hiding/drawing/processing gesture right/non janky. On my M4 MBA it doesn't seem to make a difference. (Still had the usleep enabled, so maybe test again) Still doing this just in case or whatever I guess [Sep 2026]
-    /// Wating on main could deadlock if main ever waits on GlobalEventTapThread (caller)! Doesn't do that currently [Sep 2026]
+    /// Wating on main could deadlock if main ever waits on IOThread (caller)! Doesn't do that currently [Sep 2026]
     bool blockCaller = command != kPuppetCursorCommand_Move;
     MFGate *gate = blockCaller ? [MFGate new] : nil;
 
@@ -393,7 +393,7 @@ static void drawPuppetCursor(PuppetCursorCommand command) {
 
     /// Interact with AppKit from mainThread
     /// Optimization idea: Maybe coalesce these like we're already doing for DisplayLink.m's displayLinkCallback or ModifiedDrag's coalescingDisplayLink (But don't skip draw/undraw commands!) [Sep 2026]
-    MFCFRunLoopPerform(CFRunLoopGetMain(), nil, ^{
+    mfrun(CFRunLoopGetMain(), ^{
 
         if (command == kPuppetCursorCommand_Draw) {
 

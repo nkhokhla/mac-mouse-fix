@@ -31,7 +31,7 @@ import Cocoa
     /// Handling input
     
     @objc static func handleInput(device: Device, button: NSNumber, downNotUp mouseDown: Bool, event: CGEvent) -> MFEventPassThroughEvaluation {
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
 
         let passThroughEvaluation = kMFEventPassThroughRefusal
         
@@ -163,7 +163,7 @@ import Cocoa
             ///     For levelExpired and .releaseFromHold, we know that the clickCycle will be killed right after this callback.
             ///     In that case it might not be necessary to notify the triggering button.
             ///     Edit: We also want to kill the triggering button as a modifier though
-            self.handleButtonHasHadDirectEffect_Unsafe(device: device, button: button)
+            self.handleButtonHasHadDirectEffect(device: device, button: button)
             
             /// Notify modifiers
             ///     (Probably unnecessary, because the only modifiers that can be "deactivated" are buttons. And since there's only one clickCycle, any buttons modifying the current one should already be zombified)
@@ -177,7 +177,7 @@ import Cocoa
     
     /// Effect feedback
     
-    private static func handleButtonHasHadDirectEffect_Unsafe(device: Device, button: NSNumber) {
+    private static func handleButtonHasHadDirectEffect(device: Device, button: NSNumber) {
         /// Validate
         /// Might wanna `assert(clickCycleIsActive)`
         assert(isInitialized)
@@ -193,7 +193,7 @@ import Cocoa
     
     @objc static func handleButtonHasHadEffectAsModifier(button: NSNumber) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
 
         /// Validate
         /// Might wanna `assert(buttonIsHeld)`
@@ -203,11 +203,4 @@ import Cocoa
             self.clickCycle.kill()
         }
     }
-    
-    /// Interface for accessing submodules
-    
-    //@objc static func getActiveButtonModifiers_Unsafe(device: Device) -> [[String: Int]] {
-    //    return modifierManager.getActiveButtonModifiersForDevice(device: device)
-    //}
-
 }

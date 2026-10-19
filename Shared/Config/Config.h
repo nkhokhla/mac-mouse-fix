@@ -11,7 +11,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 
 #if IS_HELPER
-    #import "GlobalEventTapThread.h"
+    #import "Threads.h"
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// RunLoop
 static inline CFRunLoopRef configRunLoop(void) CF_RETURNS_NOT_RETAINED {
     #if IS_HELPER
-        return GlobalEventTapThread.runLoop;
+        return IOThread.runLoop;
     #elif IS_MAIN_APP
         return CFRunLoopGetMain();
     #endif

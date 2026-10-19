@@ -27,7 +27,7 @@
 #import "HelperUtility.h"
 #import "Logging.h"
 #import "Threads.h"
-#import "GlobalEventTapThread.h"
+#import "NSTimer+Additions.h"
 
 @implementation TouchSimulator
 
@@ -95,9 +95,11 @@ static NSMutableDictionary *_swipeInfo;
     CFRelease(event);
 }
 
-+ (void)postDockSwipeEventWithDelta:(double)d type:(MFDockSwipeType)type phase:(IOHIDEventPhaseBits)phase invertedFromDevice:(BOOL)invertedFromDevice {
++ (void) postDockSwipeEventWithDelta: (double)d type: (MFDockSwipeType)type phase: (IOHIDEventPhaseBits)phase invertedFromDevice: (BOOL)invertedFromDevice {
 
-    assertRunLoop(GlobalEventTapThread.runLoop);
+    /// @afterNoGCDTodo The pinch DockSwipes no longer work in Mission Control (extremely niche, but I do use them sometimes. [Oct 2026] )
+
+    assertRunLoop(IOThread.runLoop);
 
     /// macOS 27 fix notes: (CGEventFields are now ignored, instead it relies on an IOHIDEvent) (See exploration in FixDockSwipes.m)
     ///     Problems/TODOs: (macOS 27 Beta 2)
@@ -332,9 +334,9 @@ static NSMutableDictionary *_swipeInfo;
         if (_tripleSendTimer != nil) [_tripleSendTimer invalidate];
 
         /// Schedule new timers
-        assertRunLoop(GlobalEventTapThread.runLoop);
-        _doubleSendTimer = [NSTimer scheduledTimerWithTimeInterval:0.2 target:self selector:@selector(dockSwipeTimerFired:) userInfo:events repeats:NO];
-        _tripleSendTimer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(dockSwipeTimerFired:) userInfo:events repeats:NO];
+        assertRunLoop(IOThread.runLoop);
+        _doubleSendTimer = [NSTimer mf_scheduledTimerWithTimeInterval: 0.2 mode: NSDefaultRunLoopMode block: ^(NSTimer *timer) { [self dockSwipeTimerFiredWithEvents: events]; }];
+        _tripleSendTimer = [NSTimer mf_scheduledTimerWithTimeInterval: 0.5 mode: NSDefaultRunLoopMode block: ^(NSTimer *timer) { [self dockSwipeTimerFiredWithEvents: events]; }];
         
     }
     
@@ -346,9 +348,8 @@ static NSMutableDictionary *_swipeInfo;
     _dockSwipeLastDelta = d;
 }
 
-+ (void)dockSwipeTimerFired:(NSTimer *)timer {
-    
-    NSDictionary *events = timer.userInfo;
++ (void)dockSwipeTimerFiredWithEvents:(NSDictionary *)events {
+
     CGEventRef e30 = (__bridge CGEventRef)events[@"e30"];
     CGEventRef e29 = (__bridge CGEventRef)events[@"e29"];
     

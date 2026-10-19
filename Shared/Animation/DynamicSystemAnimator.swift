@@ -81,7 +81,7 @@ import Foundation
     
     /// Initializers
     
-    @objc convenience init(fromAnimation animation: CASpringAnimation, stopTolerance: Double, phaseShift: PhaseShiftInVBLDeltas, runLoop: CFRunLoop, name: String) {
+    @objc convenience init(fromAnimation animation: CASpringAnimation, stopTolerance: Double, phaseShift: VBLPhase, runLoop: CFRunLoop, name: String) {
 
         let k = animation.stiffness
         let c = animation.damping
@@ -90,7 +90,7 @@ import Foundation
         self.init(stiffness: k, damping: c, mass: m, stopTolerance: stopTolerance, phaseShift: phaseShift, runLoop: runLoop, name: name)
     }
     
-    @objc required init(stiffness k: Double, damping c: Double, mass m: Double = 1.0, stopTolerance: Double, phaseShift: PhaseShiftInVBLDeltas, runLoop: CFRunLoop, name: String) {
+    @objc required init(stiffness k: Double, damping c: Double, mass m: Double = 1.0, stopTolerance: Double, phaseShift: VBLPhase, runLoop: CFRunLoop, name: String) {
 
         /// Validate
         assert(stopTolerance > 0, "Will never stop if stopTolerance <= 0")
@@ -134,7 +134,7 @@ import Foundation
     }
     
     @objc func start(distance: Double, callback: @escaping UIAnimatorCallback, onComplete: (() -> ())? = nil) {
-        assertRunLoop(displayLink.runLoop);
+        assertRunLoop(displayLink.runLoop());
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Store stopCallback
@@ -153,16 +153,10 @@ import Foundation
         self.isFirstCallback = true
 
         /// Configure displayLink
-        ///
-        /// Notes:
-        /// - I feel like this somehow makes the animation more stuttery? Turning this off.
-        /// - (Sep 2024) We're not linking the displayLink to a specific display at all. Won't this cause problems especially with 120Hz or Pro Motion displays?
-        /// @noGCDCleanup Gotta fix this
         self.displayLink.linkToMainScreen()
 
         /// Start displayLink
-        ///  @noGCDCleanup Understand/fix the `[weak self]` warning
-        self.displayLink.start_Unsafe { [weak self] timeInfo in
+        self.displayLink.start { [weak self] timeInfo in /// Breaks `displayLink -> callback -> self -> displayLink` retainCycle [Oct 2026]
             assert(self != nil)
             self?.update(timeInfo, callback)
         }
@@ -170,7 +164,7 @@ import Foundation
     
     private func update(_ timeInfo: DisplayLinkCallbackTimeInfo, _ callback: UIAnimatorCallback) {
 
-        assertRunLoop(displayLink.runLoop)
+        assertRunLoop(displayLink.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Get current step time
@@ -234,33 +228,27 @@ import Foundation
         /// Stop
         if isEnd {
             allowNestedReadOrWrite_Begin(from: .readsAndWritesState, readWriteTracker); /// Allow these since they happen at the end of `update()` [Sep 2026]
-            stop_Unsafe()
+            stop()
             stopCallback?()
             allowNestedReadOrWrite_End(from: .readsAndWritesState, readWriteTracker)
         }
     }
     
-    @objc func stop_Unsafe() {
-        assertRunLoop(displayLink.runLoop)
+    @objc func stop() {
+        assertRunLoop(displayLink.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
-        displayLink.stop_Unsafe()
+        displayLink.stop()
         resetState()
     }
-    
-    //@objc func stop() {
-    //    queue.sync {
-    //        stop_Unsafe()
-    //    }
-    //}
 
     @objc func resetSubPixelator() {
-        assertRunLoop(displayLink.runLoop)
+        assertRunLoop(displayLink.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
         self.pixelator.reset()
     }
     @objc func linkToMainScreen() {
         mfassert(false, "Unused [Oct 2026]");
-        assertRunLoop(displayLink.runLoop)
+        assertRunLoop(displayLink.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
         self.displayLink.linkToMainScreen()
     }

@@ -46,7 +46,7 @@ func licensingRunLoop() -> CFRunLoop {
     #if IS_MAIN_APP
         return CFRunLoopGetMain();
     #elseif IS_HELPER
-        return GlobalEventTapThread.runLoop();
+        return IOThread.runLoop();
     #endif
 }
 
@@ -59,7 +59,7 @@ func licensingRunLoop() -> CFRunLoop {
 final class _LicensingExecutor: SerialExecutor {
     func enqueue(_ job: UnownedJob) {
         let executor = asUnownedSerialExecutor()
-        MFCFRunLoopPerform(licensingRunLoop(), nil) { job.runSynchronously(on: executor) }
+        mfrun(licensingRunLoop()) { job.runSynchronously(on: executor) }
     }
     func asUnownedSerialExecutor() -> UnownedSerialExecutor {
         UnownedSerialExecutor(ordinary: self)
@@ -125,10 +125,10 @@ extension MFTrialState:     @unchecked Sendable {}
                         /// Not triggered by user -> the users workflow is disruped -> make it as short as possible
                         
                         /// Show trialNotification
-                        DispatchQueue.main.async {
+                        mfrun(CFRunLoopGetMain()) {
                             TrialNotificationController.shared.open(licenseConfig: licenseConfig, licenseState: licenseState, trialState: trialState, triggeredByUser: triggeredByUser)
                         }
-                        
+
                         /// Lock helper
                         SwitchMaster.shared.lockDown()
                         

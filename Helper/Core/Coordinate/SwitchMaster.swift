@@ -125,20 +125,19 @@ import ReactiveSwift
 
     let readWriteTracker = MFReadWriteTracker()
     @inline(__always) private func logWithState(_ message: @autoclosure () -> String) {
-        /// @noGCDCleanup Simplify this after removing/simplifying `ModifiedDrag.activationState`
 
-        #if false /// @noGCDCleanup re-enable
-        /// Note: [Mar 2025] This only has to be so complicated because our threading architecture is really bad. Once we move all input and SwitchMaster to GlobalEventTapThread.m, this won't be necessary.
-        if (runningDebugMode()) {
-            let invocationId = Int.random(in: 0...99999);
-            DDLogDebug("[\(invocationId)] SwitchMaster: \(message())")
-            ModifiedDrag.activationState { modifiedDragActivation in /// Note: [Mar 2025] This won't be necessary once we use GlobalEventTapThread.m
-                DDLogDebug("[\(invocationId)] SwitchMaster: EventTap state - kbMod: \(Modifiers.kbModPriority().rawValue), btnMod: \(Modifiers.btnModPriority().rawValue), button: \(ButtonInputReceiver.isRunning() ? 1 : 0), scroll: \(Scroll.isReceiving() ? 1 : 0), pointing: \(modifiedDragActivation.rawValue)")
-                DDLogDebug("[\(invocationId)] SwitchMaster: MenuItem state - buttonMenu: \(MenuBarItem.buttonsItemIsEnabled() ? 1 : 0), scrollMenu: \(MenuBarItem.scrollItemIsEnabled() ? 1 : 0)")
-                DDLogDebug("[\(invocationId)] SwitchMaster: Internal state -\n\(SharedUtilitySwift.dumpSwiftIvars(self))");
-            }
-        }
-        #endif
+        if (!runningDebugMode()) { return; }
+        assertRunLoop(IOThread.runLoop())
+
+        let buttonsKilled = /*MenuBarItem.scrollItemIsEnabled()*/  config("General.buttonKillSwitch") as! Bool /// [Oct 2026] Used to go directly through `MenuBarItem.scrollItemIsEnabled` instead of `config()` but that's owned by mainThread. Not sure this makes sense.
+        let scrollKilled  = /*MenuBarItem.buttonsItemIsEnabled()*/ config("General.scrollKillSwitch") as! Bool
+
+        DDLogDebug("""
+            SwitchMaster: \(message())
+            EventTap state - kbMod: \(Modifiers.kbModPriority().rawValue), btnMod: \(Modifiers.btnModPriority().rawValue), button: \(ButtonInputReceiver.isRunning() ? 1 : 0), scroll: \(Scroll.isReceiving() ? 1 : 0), pointing: \(ModifiedDrag.debug_activationState().rawValue)
+            MenuItem state - buttonMenu: \(buttonsKilled ? 1 : 0), scrollMenu: \(scrollKilled ? 1 : 0)
+            Internal state -\n\(SharedUtilitySwift.dumpSwiftIvars(self))
+            """)
     }
     
     //
@@ -176,7 +175,7 @@ import ReactiveSwift
 
     @objc func lockDown() {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Update state
@@ -206,7 +205,7 @@ import ReactiveSwift
     
     @objc func helperStateChanged() {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// NOTES:
@@ -248,11 +247,11 @@ import ReactiveSwift
     
     @objc func generalConfigChanged(generalConfig: NSDictionary) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Get raw
-        let btn = generalConfig.object(forKey: "buttonKillSwitch") as! Bool
+        let btn  = generalConfig.object(forKey: "buttonKillSwitch") as! Bool
         let scrl = generalConfig.object(forKey: "scrollKillSwitch") as! Bool
         
         /// Update state & set didChange
@@ -294,7 +293,7 @@ import ReactiveSwift
     private var latestDevices = NSArray()
     @objc func attachedDevicesChanged(devices: NSArray) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Update state
@@ -324,7 +323,7 @@ import ReactiveSwift
         /// Debug
         logWithState("""
             Toggled due to attachedDevices change.
-            New devices: \(devices)
+            New devices: \(devices.debugDescription/** `debugDescription` prevents escaping linebreaks somehow [Oct 2026] */)
             """)
         
     }
@@ -332,7 +331,7 @@ import ReactiveSwift
     private var latestRemaps = NSDictionary()
     @objc func remapsChanged(remaps: NSDictionary) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Update state
@@ -381,7 +380,7 @@ import ReactiveSwift
     private var latestScrollConfig = ScrollConfig.shared /// Not sure if this is a good initialization value
     @objc func scrollConfigChanged(scrollConfig: ScrollConfig) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Update state
@@ -417,7 +416,7 @@ import ReactiveSwift
     private var latestModifiers = NSDictionary()
     @objc func modifiersChanged(modifiers: NSDictionary) {
 
-        assertRunLoop(GlobalEventTapThread.runLoop())
+        assertRunLoop(IOThread.runLoop())
         readsAndWritesState_Begin(readWriteTracker); defer { readsAndWritesState_End(readWriteTracker) }
 
         /// Call combined state updaters

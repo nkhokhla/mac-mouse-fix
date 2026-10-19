@@ -26,7 +26,6 @@
 #import "PolyFitObjC.h"
 #import "IOHIDAccelerationTableBridge.hpp"
 #import "EventUtility.h"
-#import "GlobalEventTapThread.h"
 #import "DeviceManager.h"
 #import "RemapsAnalyzer.h"
 #import "Actions.h"
@@ -49,6 +48,7 @@
 #import "MacAddress.h"
 #import "MFCoding.h"
 #import "NSData+Additions.h"
+#import "NSTimer+Additions.h"
 #import "Localization.h"
 #import "Threads.h"
 

@@ -41,7 +41,7 @@ static TouchAnimator *_momentumAnimator;
 + (void)initialize {
     if (self == [GestureScrollSimulator class]) {
         _scrollLinePixelator = [VectorSubPixelator biasedPixelator]; /// I think biased is only beneficial on linePixelator. Too lazy to explain.
-        _momentumAnimator = [[TouchAnimator alloc] initWithPhaseShift: kPhaseShiftInVBLDeltas_DefaultForEventSending runLoop: GlobalEventTapThread.runLoop name: @"GestureScrollSimulatorMomentum"];
+        _momentumAnimator = [[TouchAnimator alloc] initWithPhaseShift: kVBLPhase_DefaultForEventSending runLoop: IOThread.runLoop name: @"GestureScrollSimulatorMomentum"];
         
     }
 }
@@ -89,7 +89,6 @@ static TouchAnimator *_momentumAnimator;
     
     
     /// Stop momentum scroll
-    ///     Do it sync otherwise it will be stopped immediately after it's startet by this block
     [GestureScrollSimulator stopMomentumScroll];
     
     /// Timestamps and static vars
@@ -231,8 +230,8 @@ static void (^_momentumScrollCallback)(void);
 
     /// Validate
     ///     - Old note: `callback != NULL` is a hack to make ModifiedDragOutputTwoFingerSwipe not trigger this
-    ///     - [Sep 2026] Note: Put `_momentumAnimator.isRunning_Unsafe` last in the boolean expression so it's not evaluated if `callback != NULL` since otherwise recursion check (readsAndWritesState()) of TouchAnimator is tripped. (It thinks reading isRunning during framecallback is illegal - frame callbacks should be able to interact with the animator - maybe put the frame callback outside the `readsAndWritesState()` check)
-    if (callback != NULL && _momentumAnimator.isRunning_Unsafe) {
+    ///     - [Sep 2026] Note: Put `_momentumAnimator.isRunning` last in the boolean expression so it's not evaluated if `callback != NULL` since otherwise recursion check (readsAndWritesState()) of TouchAnimator is tripped. (It thinks reading isRunning during framecallback is illegal - frame callbacks should be able to interact with the animator - maybe put the frame callback outside the `readsAndWritesState()` check)
+    if (callback != NULL && _momentumAnimator.isRunning) {
         DDLogError("Trying to set momentumScroll start callback while it's running. This can lead to bad issues and you probably don't want to do it.");
         assert(false);
     }
@@ -244,37 +243,16 @@ static void (^_momentumScrollCallback)(void);
 
 
 + (void)stopMomentumScroll {
-
-    /**
-        @noGCDCleanup
-        Random notes (about something I may have messed up earlier in refactor)
-
-        stopMomentumScroll    -> used to be `dispatch_async`
-            Callsites:
-            - [Device handleInput]; (Dead code)
-            - Scroll.m > `/// --- GestureScroll ---`
-            - Scroll.m > `resetState_Unsafe`
-            - GestureScrollSimulator.m > startMomentumScroll_Unsafe
-            - GestureScrollSimulator.m > startMomentumScroll_Unsafe > `_momentumAnimator startWithParams`
-        suspendMomentumScroll -> used to be `dispatch_sync`
-            - OutputCoordinator.swift > suspendTouchDrivers() (Dead code)
-            - ModifiedDragOutputTwoFingerSwipe.m > +handleDeactivationWhileInUseWithCancel:
-
-        -> Replaced both of these with direct (sync) calls calls without thinking.
-            (Also not sure the original design had much though behind it)
-    */
-
-    DDLogDebug("momentumScroll stop request. Caller: %@", [SharedUtility callerInfo]);
+    if (runningDebugMode()) {
+        NSString *callerInfo = _momentumAnimator.isRunning ? [SharedUtility callerInfo] : @"<Omitted for performance>"; /// Otherwise twoFingerSwipe is extremely unresponsive for me right now [Oct 2026]
+        DDLogDebug("momentumScroll stop request. Caller: %@", callerInfo);
+    }
     [_momentumAnimator cancel];
 }
 
 /// Momentum scroll main
 
 static void startMomentumScroll(double timeSinceLastInput, Vector exitVelocity, double stopSpeed, double dragCoefficient, double dragExponent, BOOL invertedFromDevice) {
-    startMomentumScroll_Unsafe(timeSinceLastInput, exitVelocity, stopSpeed, dragCoefficient, dragExponent, invertedFromDevice);
-}
-
-static void startMomentumScroll_Unsafe(double timeSinceLastInput, Vector exitVelocity, double stopSpeed, double dragCoefficient, double dragExponent, BOOL invertedFromDevice) {
     
     /// Debug
     
@@ -301,24 +279,21 @@ static void startMomentumScroll_Unsafe(double timeSinceLastInput, Vector exitVel
 
     /// Init animator
     
-    [_momentumAnimator resetSubPixelator]; /// Shouldn't we use the `_Unsafe` version here?
+    [_momentumAnimator resetSubPixelator];
     [_momentumAnimator linkToMainScreen];
-    
-    /// Start animator
-    
-    [_momentumAnimator startWithParams:^NSDictionary<NSString *,id> * _Nonnull(Vector valueLeft, BOOL isRunning, Curve * _Nullable curve, Vector currentSpeed) {
-        
-        NSMutableDictionary *p = [NSMutableDictionary dictionary];
-        
-        /// Reset subpixelators
-        [_scrollLinePixelator reset];
-        
-        /// Get animator params
-        
-        /// Get initial velocity
+
+    /// Reset subpixelators
+    [_scrollLinePixelator reset];
+
+    /// Get start params for animator
+    double duration = {};
+    Vector distanceVec = {};
+    DragCurve *animationCurve = {};
+    bool doStart = true;
+    {
+        assertRunLoop(_momentumAnimator.displayLink.runLoop);
+
         Vector initialVelocity = initalMomentumScrollVelocity_FromExitVelocity(exitVelocity);
-        
-        /// Get initial speed
         double initialSpeed = magnitudeOfVector(initialVelocity); /// Magnitude is always positive
         
         /// Stop momentumScroll immediately, if the initial Speed is too small
@@ -326,36 +301,35 @@ static void startMomentumScroll_Unsafe(double timeSinceLastInput, Vector exitVel
             DDLogDebug("Not starting momentum scroll - initialSpeed smaller stopSpeed: i: %f, s: %f", initialSpeed, stopSpeed);
             if (_momentumScrollCallback != NULL) _momentumScrollCallback();
             [GestureScrollSimulator stopMomentumScroll];
-            p[@"doStart"] = @(NO);
-            return p;
+            doStart = false;
+            goto endof_getParams;
         }
-        
+
         /// Get drag animation curve
-        
-        DragCurve *animationCurve = [[DragCurve alloc] initWithCoefficient:dragCoefficient
-                                                                  exponent:dragExponent
-                                                              initialSpeed:initialSpeed
-                                                                 stopSpeed:stopSpeed];
-        
-        /// Get duration and distance for animation from DragCurve
-        
-        double duration = animationCurve.timeInterval.length;
+        animationCurve = [
+            [DragCurve alloc]
+            initWithCoefficient: dragCoefficient
+            exponent: dragExponent
+            initialSpeed: initialSpeed
+            stopSpeed: stopSpeed
+        ];
+
+        /// Get duration and distance
+        duration = animationCurve.timeInterval.length;
         double distance = animationCurve.distanceInterval.length;
-        
-        /// Get distanceVec
-        
-        Vector distanceVec = scaledVector(unitVector(initialVelocity), distance);
-        
-        /// Return
-        
-        p[@"vector"] = nsValueFromVector(distanceVec);
-        p[@"duration"] = @(duration);
-        p[@"curve"] = animationCurve;
-        
-        return p;
-        
-    } integerCallback:^(Vector deltaVec, MFAnimationCallbackPhase animationPhase, MFMomentumHint subCurve) {
-        
+        distanceVec = scaledVector(unitVector(initialVelocity), distance);
+    } endof_getParams:
+
+    /// Start the animator
+    if (doStart)
+    [_momentumAnimator
+        startWithDuration: duration
+        durationInFrames: -1
+        vector: distanceVec
+        curve: animationCurve
+        integerCallback: ^(Vector deltaVec, MFAnimationCallbackPhase animationPhase, MFMomentumHint subCurve)
+    {
+
         /// Debug
         DDLogDebug("Momentum scrolling - delta: (%f, %f), animationPhase: %d", deltaVec.x, deltaVec.y, animationPhase);
 
@@ -381,13 +355,13 @@ static void startMomentumScroll_Unsafe(double timeSinceLastInput, Vector exitVel
             }
 
             /// Post event
-            [GestureScrollSimulator postGestureScrollEventWithGestureVector:zeroVector
-                                                           scrollVectorLine:vecScrollLine
-                                                        scrollVectorLineInt:vecScrollLineInt
-                                                          scrollVectorPoint:deltaVec
-                                                                      phase:kIOHIDEventPhaseUndefined
-                                                              momentumPhase:momentumPhase
-                                                         invertedFromDevice:invertedFromDevice];
+            [GestureScrollSimulator postGestureScrollEventWithGestureVector: zeroVector
+                                                           scrollVectorLine: vecScrollLine
+                                                        scrollVectorLineInt: vecScrollLineInt
+                                                          scrollVectorPoint: deltaVec
+                                                                      phase: kIOHIDEventPhaseUndefined
+                                                              momentumPhase: momentumPhase
+                                                         invertedFromDevice: invertedFromDevice];
 
             /// Simulate tap to prevent auto-momentumScroll
             ///     [Jul 2025] Also see Scroll.m where we do the same thing
@@ -396,21 +370,21 @@ static void startMomentumScroll_Unsafe(double timeSinceLastInput, Vector exitVel
             ///         -> We're not simulating the tap during Click and Drag gesture phase, because cancellation during this phase is currently impossible AFAIK. (Just like cancellation of a real Trackpad scroll during the gesture phase is impossible – lifting the finger will *end* the gesture phase not, *cancel* it.)
             if (animationPhase == kMFAnimationCallbackPhaseEnd || animationPhase == kMFAnimationCallbackPhaseCanceled) {
 
-                [GestureScrollSimulator postGestureScrollEventWithGestureVector:zeroVector
-                                                               scrollVectorLine:zeroVector
-                                                            scrollVectorLineInt:zeroVector
-                                                              scrollVectorPoint:zeroVector
-                                                                          phase:kIOHIDEventPhaseMayBegin
-                                                                  momentumPhase:kCGMomentumScrollPhaseNone
-                                                             invertedFromDevice:invertedFromDevice];
+                [GestureScrollSimulator postGestureScrollEventWithGestureVector: zeroVector
+                                                               scrollVectorLine: zeroVector
+                                                            scrollVectorLineInt: zeroVector
+                                                              scrollVectorPoint: zeroVector
+                                                                          phase: kIOHIDEventPhaseMayBegin
+                                                                  momentumPhase: kCGMomentumScrollPhaseNone
+                                                             invertedFromDevice: invertedFromDevice];
 
-                [GestureScrollSimulator postGestureScrollEventWithGestureVector:zeroVector
-                                                               scrollVectorLine:zeroVector
-                                                            scrollVectorLineInt:zeroVector
-                                                              scrollVectorPoint:zeroVector
-                                                                          phase:kIOHIDEventPhaseCancelled
-                                                                  momentumPhase:kCGMomentumScrollPhaseNone
-                                                             invertedFromDevice:invertedFromDevice];
+                [GestureScrollSimulator postGestureScrollEventWithGestureVector: zeroVector
+                                                               scrollVectorLine: zeroVector
+                                                            scrollVectorLineInt: zeroVector
+                                                              scrollVectorPoint: zeroVector
+                                                                          phase: kIOHIDEventPhaseCancelled
+                                                                  momentumPhase: kCGMomentumScrollPhaseNone
+                                                             invertedFromDevice: invertedFromDevice];
             }
         }
 

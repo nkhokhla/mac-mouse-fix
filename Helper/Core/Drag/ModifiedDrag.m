@@ -9,17 +9,10 @@
 //
 
 /// @noGCDCleanup
-///
-///     Changes introduced in the first commit introducing @noGCDCleanup notes (which also added this note)
-///     made broken changes to ModifiedDrag.m and ModifiedDragOutputTwoFingerSwipe.m and GestureScrollSimulator.m
-///     -> These just served to make the program compile again.
-///         (This commit cared about switching stack between DisplayLink.m ... Scroll.m to runLoops and then making it compile again)
-
-/// @noGCDCleanup
 ///     Add `readsState()` / `readsAndWritesState()` checks to `ModifiedDrag.m and ModifiedDragOutputTwoFingerSwipe.m and GestureScrollSimulator.m`
 
 /**
-    TODO: Address `[debugWarpDelta]` bug: [Oct 11 2026]  @noGCDCleanup
+    TODO: Address `[debugWarpDelta]` bug: [Oct 11 2026]  @afterNoGCDTodo
         - Problem: After PointerFreeze's CGWarpMouseCursorPosition(), the eventTaps in ModifiedDrag.m and PointerFreeze.m
             still receive a few events with unwarped location, the first warped event carries a delta describing (actualMovementByUserForThisEvent + warp).
             Under heavy load, this warpDelta can be so large that it causes major jank and stuff [macOS 27]
@@ -32,7 +25,11 @@
                     -> Hypothesis: WindowServer continues processing and sending us events while we wait for it, not having sent `CGWarpMouseCursorPosition()`, yet.
             Plan2:
                 Writing a `CommonEventTap` abstraction (coined that name right here [Oct 2026] that multiplexes to multiple clients from a single CGEventTap would avoid this this problem
-                    -> I had plans doing that for other reasons, so now might be a good time @noGCDCleanup
+                    -> I had plans doing that for other reasons, so now might be a good time @afterNoGCDTodo
+                        Another note about `CommonEventTap` idea: [Oct 2026, macOS 27, M4 MBA] In `claude --resume 361c7ab2-a2f2-48cb-9d54-7b7bf7fbc804` Claude skipped CGEvent serialization for raw data communication with WindowServer.
+                            CPU usage of passing through mouse wiggles of 1000 Hz mouse went from 9% -> 4%. Required around 180 lines microlib of .defs and C helpers (Just for the tap, we didn't parse the eventData).
+                            Dataformat could break in future. Not sure if worth it. (WindowServer at ~45% and AppleUserHIDDrivers at ~15%, so all three together went from ~70% to ~65%.)
+                            Could maybe send Apple Feedback about this. (Claude in that session can explain what is inefficient)
         - Reproduction stuff:
             - Can be hard to reproduce - Comes in cycles, I think only under heavy window-server load. The load I saw it under:
                 - 60 Hz screen: streaming vbldelta.m and logs from MMF helper, and watching youtube at 1080p
@@ -70,7 +67,7 @@
 #import "ModifiedDragOutputFakeDrag.h"
 #import "ModifiedDragOutputAddMode.h"
 
-#import "GlobalEventTapThread.h"
+#import "Threads.h"
 #import "MathObjc.h"
 
 @implementation CoalescableEvent @end
@@ -106,18 +103,10 @@ static ModifiedDragState _drag;
 //}
 
 /// Debug
-
-#if 0
-+ (void)activationStateWithCallback:(void (^)(MFModifiedInputActivationState))callback {
-    
++ (MFModifiedInputActivationState) debug_activationState {
     /// We wanted to expose `_drag` to other modules for debugging, but `_drag` can't be exposed to Swift. Maybe because it contains an ObjC pointer`id`. Right now this is fine though because we only need the activationState for debugging anyways.
-    /// We need to retrieve this on the `_drag.queue` to avoid race conditions. But using `dispatch_sync` leads to loads of concurrency issues, so we're using a callback instead.
-    
-    dispatch_async(_drag.queue, ^{
-        callback(_drag.activationState);
-    });
+    return _drag.activationState;
 }
-#endif
 
 + (NSString *)modifiedDragStateDescription:(ModifiedDragState)drag {
     NSString *output = @"";
@@ -166,7 +155,7 @@ static ModifiedDragState _drag;
                         /// ^ Using `Default` causes weird cursor jumping issues when clicking-dragging-and-holding during addMode. Not sure why that happens. This didn't happen in v2 while using `Default`. Not sure if `ListenOnly` has any disadvantages. Edit: In other places, I've had issues using listenOnly because it messes up the timestamps (I'm on macOS 12.4. right now). -> Trying default again.
             placement: kCGHeadInsertEventTap
             callback: eventTapCallBack
-            runLoop: GlobalEventTapThread.runLoop
+            runLoop: IOThread.runLoop
         ];
 
         _drag.eventTap = eventTap;
@@ -188,7 +177,7 @@ static ModifiedDragState _drag;
 
 + (void)initializeDragWithDict:(NSDictionary *)effectDict {
     
-    assertRunLoop(GlobalEventTapThread.runLoop);
+    assertRunLoop(IOThread.runLoop);
 
     /// Debug
     DDLogDebug("INITIALIZING MODIFIEDDRAG WITH previous type %@ activationState %d, newEffectDict: %@", _drag.type, _drag.activationState, effectDict);
@@ -196,13 +185,12 @@ static ModifiedDragState _drag;
     /// Guard state == inUse
     ///  I think if state == initialized we don't need to do anything special
     if (_drag.activationState == kMFModifiedInputActivationStateInUse) {
-        BOOL isSame = [effectDict isEqualToDictionary:_drag.effectDict];
-        BOOL isAddMode = [_drag.effectDict[kMFModifiedDragDictKeyType] isEqual:kMFModifiedDragTypeAddModeFeedback];
-        if (!isSame && !isAddMode) {
-            //deactivate_Unsafe(YES);
-            return;
-        } else {
-            return;
+        if ((1)) return;
+        else { /// Old code which doesn't seem to do anything [Oct 2026]
+            BOOL isSame = [effectDict isEqualToDictionary:_drag.effectDict];
+            BOOL isAddMode = [_drag.effectDict[kMFModifiedDragDictKeyType] isEqual:kMFModifiedDragTypeAddModeFeedback];
+            if (!isSame && !isAddMode) { /*deactivate(YES)*/; return; }
+            else                       return;
         }
     }
 
@@ -234,9 +222,9 @@ static ModifiedDragState _drag;
     _drag.outputPlugin = p;
 
     /// Init dynamic parts of _drag
-    initDragState_Unsafe();
+    initDragState();
 }
-static void initDragState_Unsafe(void) {
+static void initDragState(void) {
 
     _drag.origin = getRoundedPointerLocation();
     _drag.originOffset = (Vector){0};
@@ -253,7 +241,7 @@ static void initDragState_Unsafe(void) {
 
 static CGEventRef __nullable eventTapCallBack(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void * __nullable userInfo) {
 
-    assertRunLoop(GlobalEventTapThread.runLoop);
+    assertRunLoop(IOThread.runLoop);
 
     /// Store proxy
     //_tapProxy = proxy;
@@ -353,31 +341,32 @@ static CGEventRef __nullable eventTapCallBack(CGEventTapProxy proxy, CGEventType
 static void processPendingCoalescableEventsOncePerFrame(void) {
 
     /// Strategy: Flush the queue of coalescable events on the first mouse event each frame [Oct 2026]
-    ///     (To be precise, flush on first mouse event that comes at last vsync time + `kPhaseShiftInVBLDeltas_DefaultForEventSending`)
-    ///         Also see: `kPhaseShiftInVBLDeltas_DefaultForEventSending` comments [Oct 2026]
+    ///     (To be precise, flush on first mouse event that comes at last vsync time + `kVBLPhase_DefaultForEventSending`)
+    ///         Also see: `kVBLPhase_DefaultForEventSending` comments [Oct 2026]
     ///     Alternative approaches tested and abandoned:
     ///         - Measure SLSDisplayGetCurrentVBLDelta once at the start of the gesture and use that on a timer. Result: Works just as well, probably because the VBL times don't drift on my display. On a VRR display I suspect it would be worse UX. Don't think it makes a meaningful performance difference, so not worth using. [Oct 2026]
     ///     Other alternative approach ideas: [Oct 2026]
     ///         All the coalescing just solves *vertical* DockSwipe (Mission Control gesture) freezing and lag introduced by macOS 27 for high-polling rate mice,
     ///             but for low-polling-rate mice, could introduce
-    ///                 - Extra CPU overhead (Due to timers/DisplayLink.m, which we decided to avoid here)
-    ///                 - Maybe slightly more jerkiness for horizontal swipes (see `Problem with this approach` below)
+    ///                 - Extra CPU overhead (Due to timers/DisplayLink.m, which we decided to avoid here for now [Oct 2026])
+    ///                 - Maybe slightly more jerkiness for horizontal swipes if you avoid timers/DisplayLink.m (see `Problem with this approach` below)
     ///             -> Maybe, more pragmatic approach is to activate coalescing only for vertical swipes. That could simplify some things.
     ///             -> Could also only activate for low-polling rate mice, but don't know how to detect that robustly - think it's probably bad approach [Oct 2026]
     ///     Problem with this approach (which is: flushing on mouse events):
-    ///         Flushing every frame through DisplayLink uses a lot more CPU, but flushing on the first mouse event each frame causes irregular `PhaseShiftInVBLDeltas` for lower polling-rate mice,
+    ///         Flushing every frame through DisplayLink uses a lot more CPU, but flushing on the first mouse event each frame causes irregular `VBLPhase` for lower polling-rate mice,
     ///             which I think I observed makes things a little more stuttery than no coalescing at all for horizontal DockSwipes on my [Logitech Lift 135 Hz, macOS 27, 144 Hz display].
-    ///                 Also see observations on jankiness caused by sending close to phaseShift 0.0 in `kPhaseShiftInVBLDeltas_DefaultForEventSending` comment [Oct 2026]
-    ///             Caveat: The tracking on the Lift is super uneven and jerky anyways, so it might be placebo.
+    ///                 Also see observations on jankiness caused by sending close to phaseShift 0.0 in `kVBLPhase_DefaultForEventSending` comment [Oct 2026]
+    ///             Caveat: The tracking on the Logitech Lift is super uneven and jerky anyways, so it might be placebo.
     ///         Improvement idea:
     ///             Fallback timer - set up a timer (DisplayLink.m) each frame, which waits for a regular mouse event to flush, if no mouse event before deadline, the timer flushes that frame instead
-    ///                 -> This should give us good `PhaseShiftInVBLDeltas` with less CPU overhead.
+    ///                 -> This should give us good `VBLPhase` with less CPU overhead.
     ///                     I think the CPU overhead, mostly comes from the runLoop waking up for the per-frame timer in addition to the CGEventTap wakeup - I observed there's still a lot of effective CPU overhead flushing every frame through timer, even with our super-lightweight `mk_timer` based `DisplayLink` - so I concluded overhead is inherent to the additional runLoop wakeup. [Oct 2026]
+    ///             @afterNoGCDTodo consider implementing this
 
     uint64_t now = mach_absolute_time();
-    uint64_t lastVBLTime = mf_CGDisplayGetNearestVBLTime(_drag.displayID, "before", /*anchorInMachTime*/now, kPhaseShiftInVBLDeltas_DefaultForEventSending) ?: fallbackPriorVBLTime(now);
+    uint64_t lastVBLTime = CGDisplay_NearestVBLTime(_drag.displayID, "before", /*anchorInMachTime*/now, kVBLPhase_DefaultForEventSending) ?: fallbackPriorVBLTime(now);
     uint64_t vblDelta = SLSDisplayGetCurrentVBLDelta(_drag.displayID) ?: kFallbackVBLDelta;
-    uint64_t tolerance = (vblDelta / 2.0); /// `mf_CGDisplayGetNearestVBLTime` always extrapolates the frames a little differently so directly comparing the results will give false negatives [Oct 2026]
+    uint64_t tolerance = defaultVBLTolerance(vblDelta); /// `CGDisplay_NearestVBLTime` always extrapolates the frames a little differently so directly comparing the results will give false negatives [Oct 2026].
     if (_drag.lastVBLTimeThatProcessedCoalescableEvents < lastVBLTime - tolerance) {
 
         _drag.lastVBLTimeThatProcessedCoalescableEvents = lastVBLTime;
@@ -394,7 +383,7 @@ static void processPendingCoalescableEventsOncePerFrame(void) {
 
 static void processPendingCoalescableEvents(void) {
 
-    assertRunLoop(GlobalEventTapThread.runLoop);
+    assertRunLoop(IOThread.runLoop);
 
     /// Early return
     if (!_drag.pendingCoalescableEvents.count) return;
@@ -536,42 +525,9 @@ static void handleMouseInputWhileInUse(int64_t deltaX, int64_t deltaY) {
     _drag.firstCallback = false;
 }
 
-#if 0
-+ (void (^ _Nullable)(void))suspend {
-    
-    /// This was used for OutputCoordinator stuff which is unused now. Can probably remove this
-    /// Also this creates a dangling pointer according to Xcode analyzer
-    
-    void (^ __block unsuspend)(void);
-    unsuspend = nil;
-    ModifiedDragState *drag = &_drag; /// So the block references the gobal value instead of copying
-    
-    dispatch_sync(_drag.queue, ^{
-        if ((*drag).activationState != kMFModifiedInputActivationStateInUse) return;
-        DDLogDebug("Suspending ModifiedDrag");
-        deactivate_Unsafe(YES);
-        (*drag).isSuspended = YES;
-        [(*drag).outputPlugin suspend];
-        CFTimeInterval ogTime = (*drag).initTime;
-        unsuspend = ^{
-            dispatch_async((*drag).queue, ^{
-                if (ogTime == (*drag).initTime && (*drag).isSuspended) { /// So we don't unsuspend a different drag than the one we suspended
-                    DDLogDebug("UNSuspending ModifiedDrag");
-                    (*drag).isSuspended = NO;
-                    initDragState_Unsafe();
-                    [(*drag).outputPlugin unsuspend];
-                }
-            });
-        };
-    });
-    
-    return unsuspend;
-}
-#endif
-
 + (void)deactivateWithCancel:(BOOL)cancel {
 
-    assertRunLoop(GlobalEventTapThread.runLoop);
+    assertRunLoop(IOThread.runLoop);
     
     /// Debug
     DDLogDebug("modifiedDrag deactivate with state: %@", [ModifiedDrag modifiedDragStateDescription:_drag]);
@@ -621,16 +577,6 @@ static void handleMouseInputWhileInUse(int64_t deltaX, int64_t deltaY) {
 //    if (_drag.activationState == kMFModifiedInputActivationStateInUse) { /// This check should probably also be performed on the _drag.queue
 //        [self deactivateWithCancel:YES];
 //    }
-//}
-    
-//+ (void)suspend {
-//    /// Deactivate and re-initialize
-//    ///     Cool but not used cause it caused some weird bugs
-//
-//    if (_drag.activationState == kMFModifiedInputActivationStateNone) return;
-//
-//    [self deactivateWithCancel:true];
-//    initDragState();
 //}
 
 #pragma mark - Helper functions

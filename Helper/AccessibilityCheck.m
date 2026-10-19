@@ -123,13 +123,13 @@
         DDLogInfo("Accessibility Check - Running a non-NDEBUG build. Asserts are enabled.");
     #endif
 
-    /// Load (but don't yet +start) `GlobalEventTapThread` before anything else (So that other `load_Manual` methods can schedule things on `GlobalEventTapThread.runLoop`) [Sep 2026]
-    ///     Also see `[GlobalEventTapThread start];` at the end
-    ///     [Sep 2026] Claude Opus 5.5 deadlock note: `MFCFRunLoopPerform_sync` onto `GlobalEventTapThread.runLoop` before `+[GlobalEventTapThread start]` would deadlock – but we probably will barely use `MFCFRunLoopPerform_sync` and would probably quickly catch anyways.
-    [GlobalEventTapThread load_Manual];
+    /// Load (but don't yet +start) `IOThread` before anything else (So that other `load_Manual` methods can schedule things on `IOThread.runLoop`) [Sep 2026]
+    ///     Also see `[IOThread start];` at the end
+    ///     [Sep 2026] Claude Opus 5.5 deadlock note: `mfrun_sync` onto `IOThread.runLoop` before `+[IOThread start]` would deadlock – but we probably will barely use `mfrun_sync` and would probably quickly catch anyways.
+    [IOThread load_Manual];
 
-    /// Temp
-    manuallyLoadThreadsDotH();
+    /// Apply our configurations for the mainThread
+    threads_configureMainThread();
 
     /// Pre-accessibility-check init
     [MFMessagePort load_Manual];
@@ -154,8 +154,8 @@
         
         /// Check accessibility every 0.5s
         ///     Not storing the timer in a variable because we don't have to invalidate / release it since the helper will restart anyways
-        [NSTimer scheduledTimerWithTimeInterval:0.5 repeats:YES block:^(NSTimer * _Nonnull timer) {
-            
+        NSTimer *timer = [[NSTimer alloc] initWithFireDate: [NSDate dateWithTimeIntervalSinceNow: 0.5] interval: 0.5 repeats: YES block: ^(NSTimer * _Nonnull timer) {
+
             BOOL hasAccessibility = [self checkAccessibilityAndUpdateSystemSettings];
             
             if (hasAccessibility) {
@@ -165,7 +165,8 @@
                 [HelperServices restartHelperWithDelay:0.0];
             }
         }];
-            
+        [[NSRunLoop currentRunLoop] addTimer: timer forMode: NSDefaultRunLoopMode];
+
     } else {
         
         /// Accessibility is enabled -> Start normally!
@@ -239,8 +240,7 @@
 
                 [License licenseStateWithLicenseConfig:licenseConfig completionHandler:^(MFLicenseAndTrialState license, NSError * _Nullable error) {
 
-                    dispatch_async(dispatch_get_main_queue(), ^{
-
+                    mfrun(CFRunLoopGetMain(),  ^{
                         [TrialNotificationController.shared openWithLicenseConfig:licenseConfig license:license triggeredByUser:NO];
                     });
                 }];
@@ -256,15 +256,15 @@
         #endif
     }
 
-    /// Start the GlobalEventTapThread after everything else (That way, eventTaps and stuff we moved from mainThread to GlobalEventTapThread in 'No more dispatch queues' refactor still only start after everything is loaded and don't race with `load_Manual` init) [Sep 2026]
-    ///     -> This makes the whole `+load_Manual` sequence thread-safe (As long as we only use mainThread and GlobalEventTapThread) [Sep 2026]
+    /// Start the IOThread after everything else (That way, eventTaps and stuff we moved from mainThread to IOThread in 'No more dispatch queues' refactor still only start after everything is loaded and don't race with `load_Manual` init) [Sep 2026]
+    ///     -> This makes the whole `+load_Manual` sequence thread-safe (As long as we only use mainThread and IOThread) [Sep 2026]
     // Without Accessibility permission, the input modules above have not been
     // loaded. Starting their run loop would execute HelperState callbacks that
     // enable NULL event taps and crash before the permission sheet can be used.
     // The main-thread permission timer restarts the helper once access is granted.
     if (isTrusted) {
         _enableRunLoopAsserts = 1;
-        [GlobalEventTapThread start];
+        [IOThread start];
     }
 }
 
