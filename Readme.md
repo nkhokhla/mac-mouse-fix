@@ -61,7 +61,9 @@ bash Tests/InstantSpaces/run.sh
 
 ## Upstream status and credits
 
-This fork checks upstream `master` every six hours through [Sync upstream](https://github.com/nkhokhla/mac-mouse-fix/actions/workflows/sync-upstream.yml), which can also be run manually. Clean merges update this fork's `master` only after the instant-switching tests, sync safety tests, and full Release build pass. Each successful sync builds and verifies a fresh ad hoc signed DMG and publishes it as the latest release. Earlier releases remain available. Merge conflicts or failed checks open or update a review PR instead, leaving the current source and download unchanged. These automated checks cannot guarantee every runtime behavior.
+This fork checks upstream `master` every six hours through [Sync upstream](https://github.com/nkhokhla/mac-mouse-fix/actions/workflows/sync-upstream.yml), which can also be run manually. It handles documented fork differences automatically: this README stays specific to the fork, app/helper build numbers are reconciled without discarding other plist changes, and the Accessibility startup guard follows upstream's known input-thread rename. Other source conflicts still need review.
+
+Merges update this fork's `master` only after the instant-switching tests, sync safety tests, fork identity/startup checks, and full Release build pass. Each successful sync builds and verifies a fresh ad hoc signed DMG and publishes it as the latest release. Interrupted draft publication is retried automatically; published assets and earlier releases remain intact. Unrecognized conflicts or failed checks open or update a review PR instead, leaving the current source and download unchanged. These automated checks cannot guarantee every runtime behavior.
 
 The optional instant drag action has been proposed to the original project in [PR #2084](https://github.com/noah-nuebling/mac-mouse-fix/pull/2084). It has not been merged. This fork is not an official Mac Mouse Fix release and is not endorsed by its maintainer.
 

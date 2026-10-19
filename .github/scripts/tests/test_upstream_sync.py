@@ -6,6 +6,9 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import plistlib
+
+from test_conflict_policy import BASE, OURS, THEIRS
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 GIT = shutil.which("git")
@@ -23,12 +26,22 @@ class SyncTests(unittest.TestCase):
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")
         self.commit("shared", "base")
+        self.commit("Readme.md", "Upstream documentation")
+        for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
+            self.commit(path, plistlib.dumps({"CFBundleVersion": "100"}).decode())
+        self.commit("Helper/AccessibilityCheck.m", BASE.decode())
         self.base = self.git("rev-parse", "HEAD")
         self.git("clone", "--bare", str(self.repo), str(self.root / "upstream"))
         self.git("clone", "--bare", str(self.repo), str(self.root / "origin"))
         self.git("remote", "add", "origin", str(self.root / "origin"))
         self.git("fetch", "origin")
+        self.commit(".github/scripts/resolve-upstream-conflicts.py",
+                    (SCRIPTS / "resolve-upstream-conflicts.py").read_text())
         self.commit("feature", "instant switching")
+        self.commit("Readme.md", "Fork download and feature documentation")
+        for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
+            self.commit(path, plistlib.dumps({"CFBundleVersion": "104"}).decode())
+        self.commit("Helper/AccessibilityCheck.m", OURS.decode())
         self.git("push", "origin", "master")
         self.fork = self.git("rev-parse", "HEAD")
         self.bin = self.root / "bin"
@@ -38,7 +51,9 @@ class SyncTests(unittest.TestCase):
             '#!/bin/bash\nif [[ "$1" == fetch && "$2" == https://github.com/noah-nuebling/mac-mouse-fix.git ]]; then\n'
             ' shift 2\n exec "$REAL_GIT" fetch "$TEST_UPSTREAM" "$@"\nfi\nexec "$REAL_GIT" "$@"\n'
         )
-        (self.bin / "gh").write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$GH_LOG"\n')
+        (self.bin / "gh").write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$*" >> "$GH_LOG"\n'
+            'if [[ "$1 $2" == "release view" && -n "$TEST_DRAFT" ]]; then echo "$TEST_DRAFT"; fi\n')
         for file in self.bin.iterdir():
             file.chmod(0o755)
         self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -60,6 +75,7 @@ class SyncTests(unittest.TestCase):
                                        stderr=subprocess.DEVNULL, text=True).strip()
 
     def commit(self, name, content):
+        (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
         (self.repo / name).write_text(content)
         self.git("add", name)
         self.git("commit", "-m", "Test change")
@@ -136,6 +152,45 @@ class SyncTests(unittest.TestCase):
         self.git("push", "origin", "master")
         self.publish(result)
         self.assertEqual(self.origin_master(), new_head)
+
+    def test_candidate_is_stable_when_retrying_same_merge(self):
+        self.upstream_change()
+        first = self.prepare()
+        self.git("switch", "master")
+        self.git("branch", "-D", "sync-candidate")
+        self.assertEqual(self.prepare()["head"], first["head"])
+
+    def test_interrupted_release_is_resumed(self):
+        self.env["TEST_DRAFT"] = "true"
+        result = self.prepare()
+        self.assertEqual(result["head"], self.fork)
+        self.publish(result)
+        log = (self.root / "gh-log").read_text()
+        self.assertIn("release upload", log)
+        self.assertNotIn("release create", log)
+        self.assertIn("--draft=false --latest", log)
+
+    def test_known_conflicts_merge_and_publish_with_fork_changes_preserved(self):
+        self.git("switch", "--detach", self.base)
+        self.commit("Readme.md", "New upstream docs")
+        for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
+            self.commit(path, plistlib.dumps({"CFBundleVersion": "110", "NewUpstreamKey": True}).decode())
+        self.commit("Helper/AccessibilityCheck.m", THEIRS.decode())
+        self.git("push", str(self.root / "upstream"), "HEAD:master")
+        self.git("switch", "master")
+        result = self.prepare()
+        self.assertEqual(result["conflict"], "false")
+        self.assertEqual(self.git("show", result["head"] + ":Readme.md"), "Fork download and feature documentation")
+        for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
+            plist = plistlib.loads(self.git("show", result["head"] + ":" + path).encode())
+            self.assertEqual(plist, {"CFBundleVersion": "110", "NewUpstreamKey": True})
+        helper = self.git("show", result["head"] + ":Helper/AccessibilityCheck.m")
+        self.assertIn("if (isTrusted)", helper)
+        self.assertIn("[IOThread start];", helper)
+        self.assertIn("newUpstreamWork();", helper)
+        self.assertEqual(self.origin_master(), self.fork)
+        self.publish(result)
+        self.assertEqual(self.origin_master(), result["head"])
 
 
 if __name__ == "__main__":

@@ -25,8 +25,9 @@ jobs:
           submodules: true
       - name: Test embedded switching engine
         run: |
+          python3 .github/scripts/check-fork-invariants.py
           bash Tests/InstantSpaces/run.sh
-          python3 .github/scripts/tests/test_upstream_sync.py
+          python3 -m unittest discover -s .github/scripts/tests -p 'test_*.py'
       - name: Build app and helper
         run: >-
           xcodebuild -project 'Mouse Fix.xcodeproj' -scheme App

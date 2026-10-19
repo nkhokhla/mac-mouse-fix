@@ -31,6 +31,8 @@ jobs:
           fetch-depth: 0
       - name: Prepare upstream merge
         id: merge
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash .github/scripts/prepare-upstream-sync.sh
 
   validate:

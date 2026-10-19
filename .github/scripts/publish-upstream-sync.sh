@@ -29,9 +29,16 @@ Mac Mouse Fix's original licensing, trial, and payment systems remain active. Cr
 
 [Build and validation run](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
 EOF
-  gh release create "$tag" "$RELEASE_ASSETS/Mac-Mouse-Fix-Instant.dmg" "$RELEASE_ASSETS/SHA256SUMS.txt" \
-    --repo "$GITHUB_REPOSITORY" --target "$head" --draft \
-    --title "Mac Mouse Fix Instant · upstream sync ${head:0:7}" --notes-file "$body"
+  existing=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)
+  if [[ "$existing" == true ]]; then
+    # Only drafts may have assets replaced; published releases remain immutable.
+    gh release upload "$tag" "$RELEASE_ASSETS/Mac-Mouse-Fix-Instant.dmg" "$RELEASE_ASSETS/SHA256SUMS.txt" \
+      --repo "$GITHUB_REPOSITORY" --clobber
+  elif [[ "$existing" != false ]]; then
+    gh release create "$tag" "$RELEASE_ASSETS/Mac-Mouse-Fix-Instant.dmg" "$RELEASE_ASSETS/SHA256SUMS.txt" \
+      --repo "$GITHUB_REPOSITORY" --target "$head" --draft \
+      --title "Mac Mouse Fix Instant · upstream sync ${head:0:7}" --notes-file "$body"
+  fi
   # Never force-push master. A concurrent update causes the push to fail.
   git push origin "$head:refs/heads/master"
   gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
