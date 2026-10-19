@@ -1,0 +1,61 @@
+name: Release fork update
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Build instant Spaces option]
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'nkhokhla/mac-mouse-fix' && github.ref == 'refs/heads/master'
+    uses: ./.github/workflows/instant-spaces-build.yml
+    with:
+      ref: ${{ github.sha }}
+    secrets:
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+  publish:
+    needs: validate
+    if: >-
+      always() && !cancelled() && github.repository == 'nkhokhla/mac-mouse-fix' &&
+      ((github.event_name == 'workflow_dispatch' && needs.validate.result == 'success') ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.full_name == github.repository &&
+        github.event.workflow_run.head_branch == 'master'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Confirm this build still matches master
+        id: current
+        env:
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          current=$(git ls-remote origin refs/heads/master | cut -f1)
+          if [[ "$current" == "$TARGET_SHA" ]]; then echo 'publish=true' >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/download-artifact@v4
+        if: steps.current.outputs.publish == 'true'
+        with:
+          name: Mac-Mouse-Fix-Instant
+          path: release-assets
+          run-id: ${{ github.event.workflow_run.id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Publish release and signed update feed
+        if: steps.current.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ASSETS: release-assets
+          CANDIDATE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: bash .github/scripts/publish-fork-release.sh

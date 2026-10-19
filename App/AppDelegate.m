@@ -310,14 +310,6 @@ static NSDictionary *sideButtonActions;
     
     SUUpdater *up = SUUpdater.sharedUpdater;
     
-    up.automaticallyChecksForUpdates = NO;
-    /// ^ We set this to NO because we just always check when the app starts. That's simpler and it's how the old non-Sparkle updater did it so it's a little easier to deal with.
-    ///   We also use the `updaterShouldPromptForPermissionToCheckForUpdates:` delegate method to make sure no Sparkle prompt occurs asking the user if they want automatic checks.
-    ///   You could also disable this from Info.plist using `SUEnableAutomaticChecks` but that's unnecessary
-    
-//    up.sendsSystemProfile = NO; /// This is no by default
-    up.automaticallyDownloadsUpdates = NO;
-    
     BOOL checkForUpdates = [(id)config(@"General.checkForUpdates") boolValue];
     
     BOOL checkForPrereleases = [(id)config(@"General.checkForPrereleases") boolValue];
@@ -340,12 +332,14 @@ static NSDictionary *sideButtonActions;
     /// Write changes to we made to config through setConfig() to file. Also notifies helper app, which is probably unnecessary.
     commitConfig();
     
-    /// Check for udates
+    // Both channels stay on the fork feed. Respect the existing user preference.
+    [SparkleUpdaterController enablePrereleaseChannel:checkForPrereleases];
+    up.updateCheckInterval = 6 * 60 * 60;
+    up.automaticallyChecksForUpdates = checkForUpdates;
+
+    /// Check for updates
     
     if (checkForUpdates) {
-        
-        [SparkleUpdaterController enablePrereleaseChannel:checkForPrereleases];
-        
         [up checkForUpdatesInBackground];
     }
     

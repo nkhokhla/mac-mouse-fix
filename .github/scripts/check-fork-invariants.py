@@ -32,3 +32,12 @@ versions = [plistlib.loads(Path(path).read_bytes())["CFBundleVersion"] for path 
             ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist")]
 require(versions[0] == versions[1], "App and helper build numbers differ")
 print("Fork identity, Accessibility startup guard, and build numbers verified")
+
+app = plistlib.loads(Path("App/SupportFiles/Info.plist").read_bytes())
+feed = "https://raw.githubusercontent.com/nkhokhla/mac-mouse-fix/update-feed"
+key = "Y6vB4d+BQqGA41GN+4cgKipNYUdW6fNj4ezAxSPKjPA="
+require(app["SUFeedURL"] == feed + "/appcast.xml", "App updater left the fork feed")
+require(app["SUPublicEDKey"] == key, "App update verification key changed")
+require(f'#define kMFUpdateFeedRepoAddressRaw @"{feed}"' in constants, "Runtime updater feed changed")
+require(f"#define kSUPublicEDKey {key}" in constants, "Runtime verification key changed")
+print("Fork updater feed and public key verified")

@@ -5,6 +5,9 @@ on:
     branches: [master, feature/instant-spaces-drag]
   workflow_dispatch:
   workflow_call:
+    secrets:
+      SPARKLE_PRIVATE_KEY:
+        required: true
     inputs:
       ref:
         description: Exact commit to validate before upstream sync
@@ -29,10 +32,11 @@ jobs:
           bash Tests/InstantSpaces/run.sh
           python3 -m unittest discover -s .github/scripts/tests -p 'test_*.py'
       - name: Build app and helper
-        run: >-
-          xcodebuild -project 'Mouse Fix.xcodeproj' -scheme App
-          -configuration Release -derivedDataPath build
-          CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+        run: |
+          xcodebuild -project 'Mouse Fix.xcodeproj' -scheme App \
+            -configuration Release -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            MF_FORK_BUILD_NUMBER="$((GITHUB_RUN_ID * 100 + GITHUB_RUN_ATTEMPT))" build
       - name: Package build
         run: |
           app='build/Build/Products/Release/Mac Mouse Fix.app'
@@ -45,10 +49,70 @@ jobs:
           hdiutil verify Mac-Mouse-Fix-Instant.dmg
           shasum -a 256 Mac-Mouse-Fix-Instant.dmg > SHA256SUMS.txt
           ditto -c -k --keepParent "$app" 'Mac Mouse Fix Instant.zip'
+          python3 - <<'PY'
+          import json, plistlib, subprocess
+          from pathlib import Path
+          p = plistlib.loads(Path('build/Build/Products/Release/Mac Mouse Fix.app/Contents/Info.plist').read_bytes())
+          Path('release.json').write_text(json.dumps({
+              'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'build': p['CFBundleVersion'], 'version': p['CFBundleShortVersionString'],
+              'minimum_system_version': p.get('LSMinimumSystemVersion', '10.15'),
+              'public_key': p['SUPublicEDKey'],
+          }) + '\n')
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: Mac-Mouse-Fix-Instant
+          name: Mac-Mouse-Fix-Instant-build
           path: |
             Mac Mouse Fix Instant.zip
             Mac-Mouse-Fix-Instant.dmg
             SHA256SUMS.txt
+            release.json
+
+  sign:
+    needs: build
+    if: github.repository == 'nkhokhla/mac-mouse-fix'
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      # Signing code comes from the trusted workflow commit, not the candidate.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Mac-Mouse-Fix-Instant-build
+          path: release-assets
+      - name: Prepare pinned Sparkle signing tool
+        run: |
+          curl --fail --location --retry 3 https://github.com/sparkle-project/Sparkle/releases/download/1.27.1/Sparkle-1.27.1.tar.xz -o "$RUNNER_TEMP/sparkle.tar.xz"
+          echo "20d729f8ca4d07911da31fe0296880cd3176b71738deaf2b7f8de2d96cf63f4e  $RUNNER_TEMP/sparkle.tar.xz" | shasum -a 256 --check
+          mkdir "$RUNNER_TEMP/sparkle"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          swiftc .github/scripts/verify-update.swift -o "$RUNNER_TEMP/verify-update"
+      - name: Sign and independently verify update
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: python3 .github/scripts/sign-release.py release-assets "$RUNNER_TEMP/sparkle/bin/sign_update" "$RUNNER_TEMP/verify-update"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mac-Mouse-Fix-Instant
+          path: release-assets/
+
+  verify-install:
+    needs: sign
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      # This job can load the shipped framework, but receives no signing key.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: Mac-Mouse-Fix-Instant
+          path: release-assets
+      - name: Validate and install a signed update into a disposable app copy
+        run: bash .github/scripts/test-update-install.sh release-assets

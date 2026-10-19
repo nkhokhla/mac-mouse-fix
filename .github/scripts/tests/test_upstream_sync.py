@@ -7,6 +7,9 @@ import subprocess
 import tempfile
 import unittest
 import plistlib
+import base64
+import importlib.util
+import json
 
 from test_conflict_policy import BASE, OURS, THEIRS
 
@@ -44,6 +47,12 @@ class SyncTests(unittest.TestCase):
         self.commit("Helper/AccessibilityCheck.m", OURS.decode())
         self.git("push", "origin", "master")
         self.fork = self.git("rev-parse", "HEAD")
+        # Exercise the real release staging code; replace only the remote feed transport.
+        for name in ("publish-fork-release.sh", "validate-release.py"):
+            self.commit(".github/scripts/" + name, (SCRIPTS / name).read_text())
+        self.commit(".github/scripts/publish-update-feed.sh", "#!/bin/bash\nexit 0\n")
+        self.git("push", "origin", "master")
+        self.fork = self.git("rev-parse", "HEAD")
         self.bin = self.root / "bin"
         self.bin.mkdir()
         # Rewrite only the known upstream fetch, keeping all merge/push behavior real.
@@ -53,7 +62,10 @@ class SyncTests(unittest.TestCase):
         )
         (self.bin / "gh").write_text(
             '#!/bin/bash\nprintf "%s\\n" "$*" >> "$GH_LOG"\n'
-            'if [[ "$1 $2" == "release view" && -n "$TEST_DRAFT" ]]; then echo "$TEST_DRAFT"; fi\n')
+            'if [[ "$1 $2" == "release view" && -n "$TEST_DRAFT" ]]; then echo "$TEST_DRAFT"; fi\n'
+            'if [[ "$1 $2" == "release download" ]]; then\n'
+            '  while [[ "$1" != --dir ]]; do shift; done; shift\n'
+            '  cp "$RELEASE_ASSETS/appcast.xml" "$RELEASE_ASSETS/release.json" "$1/"\nfi\n')
         for file in self.bin.iterdir():
             file.chmod(0o755)
         self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -99,6 +111,15 @@ class SyncTests(unittest.TestCase):
     def publish(self, result, validation="success", check=True):
         env = dict(self.env, BASE_SHA=result["base"], UPSTREAM_SHA=result["upstream"],
                    CANDIDATE_SHA=result["head"], CONFLICT=result["conflict"], VALIDATION=validation)
+        assets = Path(self.env["RELEASE_ASSETS"])
+        metadata = {"commit": result["head"], "build": "40000", "version": "3.1.0",
+                    "minimum_system_version": "10.15", "public_key": "Y6vB4d+BQqGA41GN+4cgKipNYUdW6fNj4ezAxSPKjPA=",
+                    "signature": base64.b64encode(bytes(64)).decode(), "length": 8}
+        spec = importlib.util.spec_from_file_location("sign_release", SCRIPTS / "sign-release.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        (assets / "release.json").write_text(json.dumps(metadata))
+        (assets / "appcast.xml").write_bytes(module.make_appcast(metadata))
         return subprocess.run(["bash", str(SCRIPTS / "publish-upstream-sync.sh")],
                               cwd=self.repo, env=env, check=check,
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -169,6 +190,16 @@ class SyncTests(unittest.TestCase):
         self.assertIn("release upload", log)
         self.assertNotIn("release create", log)
         self.assertIn("--draft=false --latest", log)
+
+    def test_published_release_with_missing_feed_is_recovered_without_replacing_assets(self):
+        self.env["TEST_DRAFT"] = "false"
+        result = self.prepare()
+        self.assertEqual(result["head"], self.fork)
+        self.publish(result)
+        log = (self.root / "gh-log").read_text()
+        self.assertIn("release download", log)
+        self.assertNotIn("release upload", log)
+        self.assertNotIn("release create", log)
 
     def test_known_conflicts_merge_and_publish_with_fork_changes_preserved(self):
         self.git("switch", "--detach", self.base)

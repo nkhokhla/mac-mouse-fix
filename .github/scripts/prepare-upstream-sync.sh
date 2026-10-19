@@ -14,7 +14,10 @@ if git merge-base --is-ancestor "$upstream" "$base"; then
   # tag names the exact validated merge, so newer fork work cannot be replaced.
   draft=$(gh release view "instant-sync-${base:0:12}" --repo "$GITHUB_REPOSITORY" \
     --json isDraft --jq .isDraft 2>/dev/null || true)
-  if [[ "$draft" == true ]]; then
+  feed_commit=$(gh api "repos/$GITHUB_REPOSITORY/contents/release.json?ref=update-feed" \
+    -H 'Accept: application/vnd.github.raw+json' 2>/dev/null | \
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit", ""))' 2>/dev/null || true)
+  if [[ "$draft" == true || ( "$draft" == false && "$feed_commit" != "$base" ) ]]; then
     echo 'needed=true' >> "$GITHUB_OUTPUT"
     echo 'conflict=false' >> "$GITHUB_OUTPUT"
     echo "head=$base" >> "$GITHUB_OUTPUT"

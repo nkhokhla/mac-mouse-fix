@@ -272,6 +272,7 @@ class GeneralTabController: NSViewController {
         ///     See `applicationDidFinishLaunching` for context
         
         checkForUpdates.producer.skip(first: 1).startWithValues { doCheckUpdates in
+            SUUpdater.shared().automaticallyChecksForUpdates = doCheckUpdates
             SparkleUpdaterController.resetSkippedVersions()
             if doCheckUpdates {
                 SUUpdater.shared().checkForUpdatesInBackground()

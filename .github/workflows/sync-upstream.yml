@@ -43,6 +43,8 @@ jobs:
     uses: ./.github/workflows/instant-spaces-build.yml
     with:
       ref: ${{ needs.prepare.outputs.head }}
+    secrets:
+      SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
 
   publish:
     needs: [prepare, validate]

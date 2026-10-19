@@ -25,6 +25,12 @@ Release the button before switching again. Direction follows the macOS natural s
 
 The original **Spaces & Mission Control** option remains available.
 
+## In-app updates
+
+Install the latest DMG manually once if you have an older fork build. Builds with the fork updater check only this fork's signed update feed. **Check for Updates** runs a check when the settings app opens and periodically while it remains open. Update installation still asks for confirmation. Disabling the existing **Check for Updates** preference stops background checks.
+
+Each published update is signed with this fork's Ed25519 key; the private key is kept out of builds and stored in a GitHub Actions secret. Both update channels use the fork feed. Existing settings and licensing behavior are retained.
+
 ## Why this fork exists
 
 Mac Mouse Fix normally simulates a continuous three-finger trackpad swipe for Spaces. This fork adds a separate drag action that calls InstantSpaceSwitcher's switching engine directly, avoiding the normal horizontal transition animation.
@@ -63,7 +69,7 @@ bash Tests/InstantSpaces/run.sh
 
 This fork checks upstream `master` every six hours through [Sync upstream](https://github.com/nkhokhla/mac-mouse-fix/actions/workflows/sync-upstream.yml), which can also be run manually. It handles documented fork differences automatically: this README stays specific to the fork, app/helper build numbers are reconciled without discarding other plist changes, and the Accessibility startup guard follows upstream's known input-thread rename. Other source conflicts still need review.
 
-Merges update this fork's `master` only after the instant-switching tests, sync safety tests, fork identity/startup checks, and full Release build pass. Each successful sync builds and verifies a fresh ad hoc signed DMG and publishes it as the latest release. Interrupted draft publication is retried automatically; published assets and earlier releases remain intact. Unrecognized conflicts or failed checks open or update a review PR instead, leaving the current source and download unchanged. These automated checks cannot guarantee every runtime behavior.
+Merges update this fork's `master` only after the instant-switching tests, sync safety tests, fork identity/startup checks, and full Release build pass. Each successful sync builds and verifies a fresh ad hoc signed DMG and publishes it as the latest release. Interrupted release or update-feed publication is retried automatically; published assets and earlier releases remain intact. Unrecognized conflicts or failed checks open or update a review PR instead, leaving the current source and download unchanged. These automated checks cannot guarantee every runtime behavior.
 
 The optional instant drag action has been proposed to the original project in [PR #2084](https://github.com/noah-nuebling/mac-mouse-fix/pull/2084). It has not been merged. This fork is not an official Mac Mouse Fix release and is not endorsed by its maintainer.
 

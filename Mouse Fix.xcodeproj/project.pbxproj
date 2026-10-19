@@ -3388,7 +3388,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then # Only increment in release builds to prevent annoying churn in git history [Nov 12 2025]\n    # Notes:\n    # - We're storing the `version` (aka build number) directly inside the info plist so that we can increment it here. The `shortVersion` (such as 3.0.1) is instead stored inside the Xcode project under General > Identity > Version\n    buildNumber=$(/usr/libexec/PlistBuddy -c \"Print CFBundleVersion\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\")\n    buildNumber=$((buildNumber+1))\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\"\nfi\n";
+			shellScript = "\nif [ \"${CONFIGURATION}\" = \"Release\" ]; then # Only increment in release builds to prevent annoying churn in git history [Nov 12 2025]\n    # Notes:\n    # - We're storing the `version` (aka build number) directly inside the info plist so that we can increment it here. The `shortVersion` (such as 3.0.1) is instead stored inside the Xcode project under General > Identity > Version\n    buildNumber=$(/usr/libexec/PlistBuddy -c \"Print CFBundleVersion\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\")\n    if [ -n \"${MF_FORK_BUILD_NUMBER}\" ]; then\n        buildNumber=\"${MF_FORK_BUILD_NUMBER}\"\n    else\n        buildNumber=$((buildNumber+1))\n    fi\n    /usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $buildNumber\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\"\nfi\n";
 		};
 		4FD148D928AA45FE00FE688C /* Not BartyCrouch */ = {
 			isa = PBXShellScriptBuildPhase;
