@@ -1,9 +1,9 @@
 {
-  "commit": "393a7b5e66bcc81085b2c3f1d5b9722ba6205c7d",
-  "build": "4088075551901",
+  "commit": "3ea115fbd94b2afaf96b3fec838efdd91dbb70a0",
+  "build": "4096895084101",
   "version": "3.1.0",
   "minimum_system_version": "10.15.0",
   "public_key": "Y6vB4d+BQqGA41GN+4cgKipNYUdW6fNj4ezAxSPKjPA=",
-  "signature": "AhU+Ebwa44b3Nrs1BmG4/xqLzg0QqvN4dWLocoZvEMCFXVErjyW8XEa8lB64wXLPDMkwHmLMh7e3gOiMn4FTDw==",
-  "length": 8628160
+  "signature": "R7DuxYYVPYPla6Mr0Dr8hyxCqeCovHJ2eP3TygT6oM7jXl+ws8/WileXYW35rkFMt8dNTbRkzLdKN0iRq1pnCg==",
+  "length": 8628269
 }
