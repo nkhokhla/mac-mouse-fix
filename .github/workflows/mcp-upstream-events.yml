@@ -1,0 +1,44 @@
+name: Relay upstream sync MCP events
+
+on:
+  workflow_run:
+    workflows: [Sync upstream]
+    types: [completed]
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pull_request_number:
+        description: Open upstream-sync PR to send now
+        default: '3'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  relay:
+    if: github.repository == 'nkhokhla/mac-mouse-fix'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Trusted base only. Never check out or execute the PR's code here.
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          persist-credentials: false
+          sparse-checkout: integrations/mcp-events/relay
+      - name: Deliver matching upstream-sync event
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_EVENTS_URL: ${{ vars.MCP_EVENTS_URL }}
+          MCP_EVENTS_SITE_TOKEN: ${{ secrets.MCP_EVENTS_SITE_TOKEN }}
+        run: python3 integrations/mcp-events/relay/relay.py
