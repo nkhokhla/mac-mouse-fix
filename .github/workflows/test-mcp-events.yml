@@ -1,0 +1,32 @@
+name: Test MCP Events bridge
+on:
+  pull_request:
+    paths:
+      - 'integrations/mcp-events/**'
+      - '.github/workflows/mcp-upstream-events.yml'
+      - '.github/workflows/test-mcp-events.yml'
+  push:
+    branches: [master, integration/upstream-mcp-events]
+    paths:
+      - 'integrations/mcp-events/**'
+      - '.github/workflows/mcp-upstream-events.yml'
+      - '.github/workflows/test-mcp-events.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test bridge and relay
+        working-directory: integrations/mcp-events
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          node --test tests/*.test.mjs
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          bash scripts/build.sh
+          node scripts/validate-artifact.mjs
