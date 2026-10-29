@@ -1,5 +1,6 @@
 """Fail a sync if a clean textual merge silently removed fork-critical wiring."""
 from pathlib import Path
+import importlib.util
 import plistlib
 import re
 
@@ -19,6 +20,15 @@ for name, identifier in [("kMFBundleIDApp", "com.nuebling.mac-mouse-fix"),
 service = plistlib.loads(Path("Shared/HelperServices/sm_launchd.plist").read_bytes())
 require(service["Label"] == helper_id, "Helper service identity changed")
 project = Path("Mouse Fix.xcodeproj/project.pbxproj").read_text()
+policy_path = Path(__file__).with_name("resolve-upstream-conflicts.py")
+spec = importlib.util.spec_from_file_location("conflict_policy", policy_path)
+policy = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(policy)
+try:
+    policy.check_instant_spaces_project(project)
+except ValueError as error:
+    raise SystemExit(str(error))
+print("InstantSpaceSwitcher sources and app/helper license wiring verified")
 require(project.count(f'PRODUCT_BUNDLE_IDENTIFIER = "{helper_id}";') == 2,
         "Both helper configurations must retain the fork bundle ID")
 source = Path("Helper/AccessibilityCheck.m").read_text()

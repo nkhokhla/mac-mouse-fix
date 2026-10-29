@@ -12,6 +12,7 @@ import importlib.util
 import json
 
 from test_conflict_policy import BASE, OURS, THEIRS
+from test_project_policy import PROJECT, BASE_PROJECT, FORK_PROJECT, UPSTREAM_PROJECT, policy
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 GIT = shutil.which("git")
@@ -33,6 +34,7 @@ class SyncTests(unittest.TestCase):
         for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
             self.commit(path, plistlib.dumps({"CFBundleVersion": "100"}).decode())
         self.commit("Helper/AccessibilityCheck.m", BASE.decode())
+        self.commit(PROJECT, BASE_PROJECT.decode())
         self.base = self.git("rev-parse", "HEAD")
         self.git("clone", "--bare", str(self.repo), str(self.root / "upstream"))
         self.git("clone", "--bare", str(self.repo), str(self.root / "origin"))
@@ -129,6 +131,34 @@ class SyncTests(unittest.TestCase):
 
     def test_no_updates(self):
         self.assertEqual(self.prepare()["needed"], "false")
+
+    def test_adjacent_xcode_edits_are_resolved_before_validation(self):
+        self.git("switch", "--detach", self.base)
+        self.commit(PROJECT, UPSTREAM_PROJECT.decode())
+        self.git("push", str(self.root / "upstream"), "HEAD:master")
+        self.git("switch", "master")
+        self.commit(PROJECT, FORK_PROJECT.decode())
+        self.git("push", "origin", "master")
+        fork = self.git("rev-parse", "HEAD")
+        result = self.prepare()
+        self.assertEqual(result["conflict"], "false")
+        merged = self.git("show", result["head"] + ":" + PROJECT)
+        policy.check_instant_spaces_project(merged)
+        self.assertNotIn("mk_timer_notes.md in Resources", merged)
+        self.assertEqual(self.origin_master(), fork, "Resolution must still wait for validation")
+
+    def test_competing_xcode_settings_still_open_review_pr(self):
+        self.git("switch", "--detach", self.base)
+        self.commit(PROJECT, UPSTREAM_PROJECT.decode().replace("buildSetting = base", "buildSetting = upstream"))
+        self.git("push", str(self.root / "upstream"), "HEAD:master")
+        self.git("switch", "master")
+        self.commit(PROJECT, FORK_PROJECT.decode().replace("buildSetting = base", "buildSetting = fork"))
+        self.git("push", "origin", "master")
+        fork = self.git("rev-parse", "HEAD")
+        result = self.prepare()
+        self.assertEqual(result["conflict"], "true")
+        self.publish(result, validation="skipped")
+        self.assertEqual(self.origin_master(), fork)
 
     def test_clean_merge_preserves_feature_and_updates_after_validation(self):
         self.upstream_change()
