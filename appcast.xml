@@ -4,11 +4,11 @@
     <title>Mac Mouse Fix Instant updates</title>
     <link>https://github.com/nkhokhla/mac-mouse-fix/releases</link>
     <item>
-      <title>Mac Mouse Fix Instant 3.1.0 (4124490022501)</title>
-      <pubDate>Sat, 31 Oct 2026 21:47:09 +0000</pubDate>
-      <sparkle:releaseNotesLink>https://github.com/nkhokhla/mac-mouse-fix/releases/tag/instant-sync-b03bc5e37c33</sparkle:releaseNotesLink>
+      <title>Mac Mouse Fix Instant 3.1.0 (4128064107701)</title>
+      <pubDate>Sun, 01 Nov 2026 06:28:02 +0000</pubDate>
+      <sparkle:releaseNotesLink>https://github.com/nkhokhla/mac-mouse-fix/releases/tag/instant-sync-ce57fb981fc1</sparkle:releaseNotesLink>
       <sparkle:minimumSystemVersion>10.15.0</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/nkhokhla/mac-mouse-fix/releases/download/instant-sync-b03bc5e37c33/Mac-Mouse-Fix-Instant.dmg" length="8627974" type="application/octet-stream" sparkle:version="4124490022501" sparkle:shortVersionString="3.1.0" sparkle:edSignature="WPUl9wdpU9E46FXYmuo6MlyOvoSo5DcN3ZCQYFfxNEnOH/VMnuTK+9KoHt6DxVmDtK5m+tl2mYF7m2JZ3l7kBw==" />
+      <enclosure url="https://github.com/nkhokhla/mac-mouse-fix/releases/download/instant-sync-ce57fb981fc1/Mac-Mouse-Fix-Instant.dmg" length="8628239" type="application/octet-stream" sparkle:version="4128064107701" sparkle:shortVersionString="3.1.0" sparkle:edSignature="E+0s2Uqo7UXuUC/iYBlYdgHB6LrECS9XpedZemdDrTFQfnVit+t3N9yqUcqHzxjLWTzmHdS9BZPzD89ttvUiDA==" />
     </item>
   </channel>
 </rss>
