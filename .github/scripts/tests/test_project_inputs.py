@@ -42,7 +42,7 @@ class ProjectInputsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         for relative in [MOVED + "/ModifiedDragOutputThreeFingerSwipe.m", ENGINE_PATH + "/ISS.c",
                          ENGINE_PATH + "/event_serialize.c", ENGINE_PATH + "/event_serialize.h",
                          ENGINE_PATH + "/include/ISS.h", ENGINE_PATH + "/InstantSpaceSwitcher-LICENSE.txt"]:
@@ -59,6 +59,12 @@ class ProjectInputsTests(unittest.TestCase):
         shutil.move(self.root / MOVED / "ModifiedDragOutputThreeFingerSwipe.m", self.root / OLD)
         resolved = inputs.input_paths(project(OLD), self.root)
         self.assertEqual(resolved["plugin"], self.root / OLD / "ModifiedDragOutputThreeFingerSwipe.m")
+
+    def test_symlinked_repository_root_is_canonicalized(self):
+        alias = self.root / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        resolved = inputs.input_paths(project(), alias)
+        self.assertEqual(resolved["plugin"], self.root / MOVED / "ModifiedDragOutputThreeFingerSwipe.m")
 
     def test_parent_move_cannot_hide_missing_engine_behind_valid_file_ids(self):
         with self.assertRaisesRegex(ValueError, "engine input is missing"):
