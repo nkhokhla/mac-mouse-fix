@@ -28,7 +28,7 @@ static void capture_event(CGEventTapLocation location, CGEventRef event) {
 #define CGSMainConnectionID test_connection
 #define CGSGetActiveSpace test_active_space
 #define CGSCopyManagedDisplaySpaces test_spaces
-#include "../../Helper/Core/Drag/ThreeFingerSwipe/InstantSpaceSwitcher/ISS.c"
+#include "ISS.c"
 
 int32_t test_connection(void) { return 1; }
 uint64_t test_active_space(int32_t connection) { (void)connection; return 101; }

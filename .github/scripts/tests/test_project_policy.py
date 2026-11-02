@@ -17,7 +17,9 @@ APP_RESOURCES = "4F94F5EC25E5EC2500D9F24A"
 HELPER_RESOURCES = "4FCECD7E21092354001F1078"
 APP_TARGET = "4F94F5ED25E5EC2500D9F24A"
 HELPER_TARGET = "4FCECD7F21092354001F1078"
+PLUGIN = "4FF0254E27AFF90800923107"
 FILES = {
+    PLUGIN: ("4FF0254D27AFF90800923107", "ModifiedDragOutputThreeFingerSwipe.m", "Sources"),
     TIMER: ("4FFF9F38307B904900211519", "mk_timer_notes.md", "Resources"),
     ISS: ("67CB43409F3559F395916099", "ISS.c", "Sources"),
     EVENT: ("B97E45C481DF595E9168F948", "event_serialize.c", "Sources"),
@@ -70,8 +72,8 @@ def project(entries=(TIMER,), sources=(), resources=None, setting="base"):
 # Keep the fork addition immediately beside the upstream deletion, as in the
 # October 2026 incident. These small fixtures intentionally cause a Git conflict.
 BASE_PROJECT = project()
-FORK_PROJECT = project((TIMER, ISS, EVENT, APP_LICENSE, HELPER_LICENSE),
-                       (ISS, EVENT), (HELPER_LICENSE, TIMER))
+FORK_PROJECT = project((TIMER, ISS, EVENT, APP_LICENSE, HELPER_LICENSE, PLUGIN),
+                       (ISS, EVENT, PLUGIN), (HELPER_LICENSE, TIMER))
 UPSTREAM_PROJECT = project(())
 
 
@@ -87,7 +89,7 @@ class ProjectPolicyTests(unittest.TestCase):
         self.assertIsNotNone(merged)
         records = policy.project_collections(merged.decode())[1]["build_files"]
         self.assertNotIn(TIMER, records)
-        self.assertEqual(set(records), {ISS, EVENT, APP_LICENSE, HELPER_LICENSE})
+        self.assertEqual(set(records), {ISS, EVENT, APP_LICENSE, HELPER_LICENSE, PLUGIN})
         policy.check_instant_spaces_project(merged.decode())
 
     def test_independent_additions_from_both_sides_are_kept(self):
@@ -142,7 +144,7 @@ class ProjectPolicyTests(unittest.TestCase):
         policy.check_instant_spaces_project(FORK_PROJECT.decode())
 
     def test_invariants_reject_removed_source_or_license_membership(self):
-        for identifier in (ISS, EVENT, APP_LICENSE, HELPER_LICENSE):
+        for identifier in (ISS, EVENT, APP_LICENSE, HELPER_LICENSE, PLUGIN):
             with self.subTest(identifier=identifier), self.assertRaises(ValueError):
                 text = FORK_PROJECT.decode().replace(member(identifier), "")
                 policy.check_instant_spaces_project(text)

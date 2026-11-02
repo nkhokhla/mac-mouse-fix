@@ -9,6 +9,14 @@ static IOHIDEventPhaseBits postedPhase;
 static double postedDelta;
 static BOOL freezeEnabled = YES;
 static bool switchSucceeds = true;
+#if TEST_HAS_WARP_COMPENSATOR
+static int warpFreezes;
+void WarpDeltaCompensator_ReportFreeze(WarpDeltaCompensator *state, CGPoint location) {
+    assert(state != NULL);
+    assert(CGPointEqualToPoint(location, CGPointMake(100, 100)));
+    warpFreezes++;
+}
+#endif
 bool iss_switch(ISSDirection direction) {
     switches++;
     switchedDirection = direction;
@@ -38,7 +46,13 @@ CFArrayRef CGSCopyManagedDisplaySpaces(int connection) {
     (void)connection;
     return CFBridgingRetain(@[@{@"Display Identifier": @"test-display", @"Spaces": @[@1, @2, @3]}]);
 }
-static void reset(void) { switches = gestureEvents = freezes = unfreezes = 0; }
+static void reset(void) {
+#if TEST_HAS_WARP_COMPENSATOR
+    assert(warpFreezes == freezes);
+    warpFreezes = 0;
+#endif
+    switches = gestureEvents = freezes = unfreezes = 0;
+}
 static ModifiedDragState drag(NSString *type, MFAxis axis, BOOL natural, double x) {
     return (ModifiedDragState){ .type = type, .usageAxis = axis, .naturalDirection = natural,
         .originOffset = CGPointMake(x, -20), .usageOrigin = CGPointMake(100, 100), .firstCallback = YES };

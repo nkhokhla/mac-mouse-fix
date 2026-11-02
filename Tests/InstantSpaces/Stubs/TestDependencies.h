@@ -1,5 +1,9 @@
 #pragma once
 #import <Cocoa/Cocoa.h>
+#if __has_include("WarpDeltaCompensator.h")
+#import "WarpDeltaCompensator.h"
+#define TEST_HAS_WARP_COMPENSATOR 1
+#endif
 #define kMFModifiedDragTypeThreeFingerSwipe @"threeFingerSwipe"
 #define kMFModifiedDragTypeThreeFingerSwipeInstant @"threeFingerSwipeInstant"
 typedef enum { kMFAxisHorizontal, kMFAxisVertical } MFAxis;
@@ -12,6 +16,9 @@ typedef struct {
     BOOL naturalDirection;
     CGPoint originOffset, usageOrigin;
     BOOL firstCallback;
+#if TEST_HAS_WARP_COMPENSATOR
+    WarpDeltaCompensator warpDeltaCompensator;
+#endif
 } ModifiedDragState;
 @interface TestScreen : NSObject
 + (TestScreen *)mainScreen;

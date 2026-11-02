@@ -26,11 +26,12 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           submodules: true
-      - name: Test embedded switching engine
-        run: |
-          python3 .github/scripts/check-fork-invariants.py
-          bash Tests/InstantSpaces/run.sh
-          python3 -m unittest discover -s .github/scripts/tests -p 'test_*.py'
+      - name: Validate fork wiring and Xcode input paths
+        run: python3 .github/scripts/check-fork-invariants.py
+      - name: Test upstream sync tooling
+        run: python3 -m unittest discover -s .github/scripts/tests -p 'test_*.py'
+      - name: Test embedded switching engine and drag routing
+        run: bash Tests/InstantSpaces/run.sh
       - name: Build app and helper
         run: |
           xcodebuild -project 'Mouse Fix.xcodeproj' -scheme App \

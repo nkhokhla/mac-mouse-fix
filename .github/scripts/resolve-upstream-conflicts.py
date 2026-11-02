@@ -21,7 +21,7 @@ def project_section(project, name):
 
 def project_phases(project, name):
     section = project_section(project, name).group(2)
-    pattern = r"^\t\t(" + UUID + r") /\* [^\n]* \*/ = \{\n(.*?)^\t\t\};\n"
+    pattern = r"^\t\t(" + UUID + r")(?: /\* [^\n]* \*/)? = \{\n(.*?)^\t\t\};\n"
     phases = {}
     for match in re.finditer(pattern, section, re.M | re.S):
         identifier, body = match.groups()
@@ -116,6 +116,7 @@ def check_instant_spaces_project(project):
     # These IDs belong to this fork. Regenerating them requires an explicit update
     # to this contract, rather than silently accepting missing build wiring.
     expected = {
+        "4FF0254E27AFF90800923107": ("4FF0254D27AFF90800923107", "ModifiedDragOutputThreeFingerSwipe.m"),
         "1F0C64BAEF9957C6996BFB49": ("67CB43409F3559F395916099", "ISS.c"),
         "662B332666E7565B99227603": ("B97E45C481DF595E9168F948", "event_serialize.c"),
         "02DE70D2BA2F5BE59A616DB2": ("91C41E5000D352939A1BA086", "InstantSpaceSwitcher-LICENSE.txt"),
@@ -133,7 +134,7 @@ def check_instant_spaces_project(project):
     targets = project_phases(project, "PBXNativeTarget")
     wiring = [
         ("4FCECD7F21092354001F1078", "4FCECD7C21092354001F1078", sources,
-         ["1F0C64BAEF9957C6996BFB49", "662B332666E7565B99227603"]),
+         ["1F0C64BAEF9957C6996BFB49", "662B332666E7565B99227603", "4FF0254E27AFF90800923107"]),
         ("4FCECD7F21092354001F1078", "4FCECD7E21092354001F1078", resources,
          ["D2B5D18719C3514BB93D876D"]),
         ("4F94F5ED25E5EC2500D9F24A", "4F94F5EC25E5EC2500D9F24A", resources,

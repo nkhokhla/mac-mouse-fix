@@ -1,6 +1,13 @@
 name: Sync upstream
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/scripts/**'
+      - '.github/workflows/sync-upstream.yml'
+      - '.github/workflows/instant-spaces-build.yml'
+      - 'Tests/InstantSpaces/**'
   schedule:
     - cron: '23 */6 * * *'
   workflow_dispatch:

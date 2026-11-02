@@ -15,7 +15,7 @@
 #import "Mac_Mouse_Fix_Helper-Swift.h"
 #import "CGSDisplays.h"
 #import "Logging.h"
-#import "InstantSpaceSwitcher/include/ISS.h"
+#import "ISS.h"
 
 @implementation ModifiedDragOutputThreeFingerSwipe
 

@@ -29,6 +29,14 @@ try:
 except ValueError as error:
     raise SystemExit(str(error))
 print("InstantSpaceSwitcher sources and app/helper license wiring verified")
+inputs_spec = importlib.util.spec_from_file_location("project_inputs", Path(__file__).with_name("project-inputs.py"))
+inputs = importlib.util.module_from_spec(inputs_spec)
+inputs_spec.loader.exec_module(inputs)
+try:
+    inputs.input_paths(project, Path.cwd())
+except ValueError as error:
+    raise SystemExit(str(error))
+print("Xcode source, header, and license paths exist on disk")
 require(project.count(f'PRODUCT_BUNDLE_IDENTIFIER = "{helper_id}";') == 2,
         "Both helper configurations must retain the fork bundle ID")
 source = Path("Helper/AccessibilityCheck.m").read_text()
