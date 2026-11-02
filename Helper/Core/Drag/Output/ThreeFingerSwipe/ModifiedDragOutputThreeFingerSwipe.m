@@ -77,6 +77,7 @@ static BOOL _instantHorizontal = NO;
 
     /// Freeze pointer
     if (GeneralConfig.freezePointerDuringModifiedDrag) {
+        WarpDeltaCompensator_ReportFreeze(&_drag->warpDeltaCompensator, _drag->usageOrigin);
         [PointerFreeze freezePointerAtPosition:_drag->usageOrigin];
     }
 }
