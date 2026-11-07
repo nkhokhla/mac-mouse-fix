@@ -31,6 +31,7 @@ jobs:
       base: ${{ steps.merge.outputs.base }}
       upstream: ${{ steps.merge.outputs.upstream }}
       head: ${{ steps.merge.outputs.head }}
+      acknowledgements_only: ${{ steps.merge.outputs.acknowledgements_only }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,7 +45,7 @@ jobs:
 
   validate:
     needs: prepare
-    if: needs.prepare.outputs.needed == 'true' && needs.prepare.outputs.conflict == 'false'
+    if: needs.prepare.outputs.needed == 'true' && needs.prepare.outputs.conflict == 'false' && needs.prepare.outputs.acknowledgements_only != 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/instant-spaces-build.yml
@@ -78,6 +79,7 @@ jobs:
           UPSTREAM_SHA: ${{ needs.prepare.outputs.upstream }}
           CANDIDATE_SHA: ${{ needs.prepare.outputs.head }}
           CONFLICT: ${{ needs.prepare.outputs.conflict }}
+          ACKNOWLEDGEMENTS_ONLY: ${{ needs.prepare.outputs.acknowledgements_only }}
           VALIDATION: ${{ needs.validate.result }}
           RELEASE_ASSETS: release-assets
         run: bash .github/scripts/publish-upstream-sync.sh

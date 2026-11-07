@@ -1,8 +1,15 @@
 # Upstream sync guardrails
 
-The scheduled sync prepares a merge candidate, runs the fork invariants and
-regression tests, builds the Release app and helper, and verifies the packaged
-update before publishing. Conflict resolution alone never authorizes publication.
+The scheduled sync prepares a merge candidate. Before publishing an app update,
+it runs the fork invariants and regression tests, builds the Release app and
+helper, and verifies the packaged update.
+
+The public fork uses standard GitHub-hosted runners and retains temporary build
+artifacts for one day. The published downloads remain available on Releases.
+If the candidate differs from the last published source only in existing
+acknowledgement documents, the workflow updates master without building an app
+or publishing a release. The shortcut requires a verified published ancestor
+and leaves a pending draft release on the validation path.
 
 `resolve-upstream-conflicts.py` is extracted from the trusted fork base. Its Xcode
 policy merges `PBXBuildFile` entries and Sources/Resources memberships by their

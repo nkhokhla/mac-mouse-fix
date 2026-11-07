@@ -31,6 +31,7 @@ class SyncTests(unittest.TestCase):
         self.git("config", "user.email", "test@example.invalid")
         self.commit("shared", "base")
         self.commit("Readme.md", "Upstream documentation")
+        self.commit("Acknowledgements.md", "Upstream acknowledgements")
         for path in ("App/SupportFiles/Info.plist", "Helper/SupportFiles/Info.plist"):
             self.commit(path, plistlib.dumps({"CFBundleVersion": "100"}).decode())
         self.commit("Helper/AccessibilityCheck.m", BASE.decode())
@@ -65,6 +66,9 @@ class SyncTests(unittest.TestCase):
         (self.bin / "gh").write_text(
             '#!/bin/bash\nprintf "%s\\n" "$*" >> "$GH_LOG"\n'
             'if [[ "$1 $2" == "release view" && -n "$TEST_DRAFT" ]]; then echo "$TEST_DRAFT"; fi\n'
+            'if [[ "$1 $2" == "api repos/example/test/contents/release.json?ref=update-feed" ]]; then\n'
+            '  printf \'{"commit":"%s"}\\n\' "$TEST_FEED_COMMIT"\n'
+            'fi\n'
             'if [[ "$1 $2" == "release download" ]]; then\n'
             '  while [[ "$1" != --dir ]]; do shift; done; shift\n'
             '  cp "$RELEASE_ASSETS/appcast.xml" "$RELEASE_ASSETS/release.json" "$1/"\nfi\n')
@@ -112,7 +116,8 @@ class SyncTests(unittest.TestCase):
 
     def publish(self, result, validation="success", check=True):
         env = dict(self.env, BASE_SHA=result["base"], UPSTREAM_SHA=result["upstream"],
-                   CANDIDATE_SHA=result["head"], CONFLICT=result["conflict"], VALIDATION=validation)
+                   CANDIDATE_SHA=result["head"], CONFLICT=result["conflict"], VALIDATION=validation,
+                   ACKNOWLEDGEMENTS_ONLY=result.get("acknowledgements_only", "false"))
         assets = Path(self.env["RELEASE_ASSETS"])
         metadata = {"commit": result["head"], "build": "40000", "version": "3.1.0",
                     "minimum_system_version": "10.15", "public_key": "Y6vB4d+BQqGA41GN+4cgKipNYUdW6fNj4ezAxSPKjPA=",
@@ -131,6 +136,47 @@ class SyncTests(unittest.TestCase):
 
     def test_no_updates(self):
         self.assertEqual(self.prepare()["needed"], "false")
+
+    def upstream_acknowledgement_change(self, *, executable=False):
+        self.git("switch", "--detach", self.base)
+        self.commit("Acknowledgements.md", "Updated upstream acknowledgements")
+        if executable:
+            (self.repo / "Acknowledgements.md").chmod(0o755)
+            self.git("add", "Acknowledgements.md")
+            self.git("commit", "-m", "Change acknowledgement file mode")
+        self.git("push", str(self.root / "upstream"), "HEAD:master")
+        self.git("switch", "master")
+
+    def test_acknowledgement_sync_skips_release_when_published_source_matches(self):
+        self.env["TEST_FEED_COMMIT"] = self.fork
+        self.upstream_acknowledgement_change()
+        result = self.prepare()
+        self.assertEqual(result["acknowledgements_only"], "true")
+        self.publish(result, validation="skipped")
+        self.assertEqual(self.origin_master(), result["head"])
+        self.assertNotIn("release create", (self.root / "gh-log").read_text())
+
+    def test_acknowledgement_sync_does_not_hide_unpublished_fork_changes(self):
+        self.env["TEST_FEED_COMMIT"] = self.fork
+        self.commit("feature", "Unpublished change")
+        self.git("push", "origin", "master")
+        fork = self.origin_master()
+        self.upstream_acknowledgement_change()
+        result = self.prepare()
+        self.assertNotEqual(result.get("acknowledgements_only"), "true")
+        self.publish(result, validation="skipped")
+        self.assertEqual(self.origin_master(), fork)
+
+    def test_acknowledgement_file_mode_change_still_requires_validation(self):
+        self.env["TEST_FEED_COMMIT"] = self.fork
+        self.upstream_acknowledgement_change(executable=True)
+        self.assertNotEqual(self.prepare().get("acknowledgements_only"), "true")
+
+    def test_acknowledgement_sync_does_not_skip_pending_release(self):
+        self.env["TEST_FEED_COMMIT"] = self.fork
+        self.env["TEST_DRAFT"] = "true"
+        self.upstream_acknowledgement_change()
+        self.assertNotEqual(self.prepare().get("acknowledgements_only"), "true")
 
     def test_adjacent_xcode_edits_are_resolved_before_validation(self):
         self.git("switch", "--detach", self.base)
@@ -192,7 +238,9 @@ class SyncTests(unittest.TestCase):
         (Path(self.env["RELEASE_ASSETS"]) / "Mac-Mouse-Fix-Instant.dmg").write_bytes(b"corrupt")
         self.assertNotEqual(self.publish(result, check=False).returncode, 0)
         self.assertEqual(self.origin_master(), self.fork)
-        self.assertFalse((self.root / "gh-log").exists())
+        log = (self.root / "gh-log").read_text()
+        for operation in ("create", "upload", "edit"):
+            self.assertNotIn(f"release {operation}", log)
 
     def test_master_update_during_validation_is_not_overwritten(self):
         self.upstream_change()

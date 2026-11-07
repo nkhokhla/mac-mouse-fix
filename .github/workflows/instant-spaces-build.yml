@@ -67,6 +67,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Mac-Mouse-Fix-Instant-build
+          retention-days: 1
           path: |
             Mac Mouse Fix Instant.zip
             Mac-Mouse-Fix-Instant.dmg
@@ -102,6 +103,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Mac-Mouse-Fix-Instant
+          retention-days: 1
           path: release-assets/
 
   verify-install:

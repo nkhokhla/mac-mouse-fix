@@ -8,18 +8,28 @@ if [[ "$head" != "$CANDIDATE_SHA" ]]; then
   echo 'The candidate branch changed; refusing to publish a different commit.' >&2
   exit 1
 fi
-if [[ "$CONFLICT" == false && "$VALIDATION" == success && "$current" == "$BASE_SHA" ]]; then
+acknowledgements_only=${ACKNOWLEDGEMENTS_ONLY:-false}
+if [[ "$CONFLICT" == false && "$current" == "$BASE_SHA" &&
+      ( "$VALIDATION" == success || ( "$acknowledgements_only" == true && "$VALIDATION" == skipped ) ) ]]; then
   git merge-base --is-ancestor "$BASE_SHA" "$head"
   git merge-base --is-ancestor "$UPSTREAM_SHA" "$head"
   export CANDIDATE_SHA="$head"
-  bash .github/scripts/publish-fork-release.sh stage
+  if [[ "$VALIDATION" == success ]]; then
+    bash .github/scripts/publish-fork-release.sh stage
+  fi
   # Never force-push master. A concurrent update causes the push to fail.
   git push origin "$head:refs/heads/master"
-  bash .github/scripts/publish-fork-release.sh publish
-  echo "Merged upstream $UPSTREAM_SHA after tests and the Release build passed." >> "$GITHUB_STEP_SUMMARY"
+  if [[ "$VALIDATION" == success ]]; then
+    bash .github/scripts/publish-fork-release.sh publish
+    echo "Merged upstream $UPSTREAM_SHA after tests and the Release build passed." >> "$GITHUB_STEP_SUMMARY"
+    message='The latest upstream sync passed validation and was applied automatically.'
+  else
+    echo "Merged upstream acknowledgement updates from $UPSTREAM_SHA." >> "$GITHUB_STEP_SUMMARY"
+    message='The latest upstream acknowledgement updates were applied automatically.'
+  fi
   pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$branch" --base master --state open --json number --jq '.[0].number // empty')
   if [[ -n "$pr" ]]; then
-    gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment 'The latest upstream sync passed validation and was applied automatically.'
+    gh pr close "$pr" --repo "$GITHUB_REPOSITORY" --comment "$message"
   fi
   exit 0
 fi

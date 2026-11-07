@@ -9,14 +9,19 @@ git fetch https://github.com/noah-nuebling/mac-mouse-fix.git master:refs/remotes
 base=$(git rev-parse origin/master)
 upstream=$(git rev-parse upstream/master)
 printf 'base=%s\nupstream=%s\n' "$base" "$upstream" >> "$GITHUB_OUTPUT"
+
+published_source() {
+  gh api "repos/$GITHUB_REPOSITORY/contents/release.json?ref=update-feed" \
+    -H 'Accept: application/vnd.github.raw+json' 2>/dev/null | \
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit", ""))' 2>/dev/null
+}
+
 if git merge-base --is-ancestor "$upstream" "$base"; then
   # Recover if source was pushed but publication was interrupted. The draft
   # tag names the exact validated merge, so newer fork work cannot be replaced.
   draft=$(gh release view "instant-sync-${base:0:12}" --repo "$GITHUB_REPOSITORY" \
     --json isDraft --jq .isDraft 2>/dev/null || true)
-  feed_commit=$(gh api "repos/$GITHUB_REPOSITORY/contents/release.json?ref=update-feed" \
-    -H 'Accept: application/vnd.github.raw+json' 2>/dev/null | \
-    python3 -c 'import json,sys; print(json.load(sys.stdin).get("commit", ""))' 2>/dev/null || true)
+  feed_commit=$(published_source || true)
   if [[ "$draft" == true || ( "$draft" == false && "$feed_commit" != "$base" ) ]]; then
     echo 'needed=true' >> "$GITHUB_OUTPUT"
     echo 'conflict=false' >> "$GITHUB_OUTPUT"
@@ -46,6 +51,33 @@ if git merge --no-ff --no-commit "$upstream" || python3 "$policy"; then
     git commit -m "Merge upstream $upstream"
   echo 'conflict=false' >> "$GITHUB_OUTPUT"
   head=$(git rev-parse HEAD)
+  # Classify against the published source so earlier unreleased app changes
+  # cannot be hidden by an acknowledgement-only upstream diff.
+  feed_commit=$(published_source || true)
+  if [[ "$feed_commit" =~ ^[0-9a-f]{40}$ ]] && git merge-base --is-ancestor "$feed_commit" "$base" &&
+    python3 - "$feed_commit" "$head" <<'PY'
+import re
+import subprocess
+import sys
+
+records = subprocess.check_output(
+    ["git", "diff", "--raw", "--no-renames", "-z", *sys.argv[1:]]
+).split(b"\0")[:-1]
+allowed = re.compile(rb"(?:Markdown/LocalizedDocuments/[A-Za-z0-9_-]+/)?Acknowledgements\.md")
+if not records or len(records) % 2:
+    sys.exit(1)
+for record, path in zip(records[::2], records[1::2]):
+    if not (record.startswith(b":100644 100644 ") and record.endswith(b" M") and allowed.fullmatch(path)):
+        sys.exit(1)
+PY
+  then
+    draft=$(gh release view "instant-sync-${base:0:12}" --repo "$GITHUB_REPOSITORY" \
+      --json isDraft --jq .isDraft 2>/dev/null || true)
+    if [[ "$draft" != true ]]; then
+      echo 'acknowledgements_only=true' >> "$GITHUB_OUTPUT"
+      echo 'Only published acknowledgement documents changed. No app build is needed.' >> "$GITHUB_STEP_SUMMARY"
+    fi
+  fi
 else
   # A PR from the upstream tip shows the conflicting upstream changes using
   # the shared merge base; it does not replace the fork's master branch.
